@@ -1,6 +1,78 @@
 ### Todos
 
-#tag #TODO915 Read about the architecture
-#tag #TODOa83 Read about how data is loaded for training
-#tag #TODO716 Read about the different parameters
-#tag #TODO391 Where are the trained nets stored
+#tag #TODO716 Read about the different hyper-parameters
+#tag #TODOd6e "if pn.endswith('c_proj.weight'):" something about scaled init of c_proj.weight
+- What are the c_proj weights?
+  - Appearantly good acc to openai??
+  - ctrl + f in DLIDS chat
+#tag #TODOf84 What is cosine similarity
+#tag #TODOe0f And what is BERT score
+#tag #TODO5f5 What is BLEU score
+#tag #TODO88e What is BPE encoding
+
+#tag #TODOf3b Try to implement something similar to model.py in pytorch
+  - Follow this: "class Block(nn.Module):"
+    - Check its calls because everything is in that order (its forward() method)
+
+
+
+
+
+### Learned stuff
+
+##### [Model.py](nanoGPT/model.py)
+- #tag #GLOSS150 *nn.Parameter()*
+  - Initiates a new parameter (used )
+- #tag #GLOSS01a *self.c_attn*:
+  - According to GPT one matrix mult is done instead of 3 separate ones for Q, K and V
+    - "Then split() is used to separate them."
+- #tag #GLOSS958 *Weight tying*:
+  - self.transformer.wte.weight = self.lm_head.weight
+    - [Weight tying link from model.py](https://paperswithcode.com/method/weight-tying)
+    - Acc. to GPT:
+      -   The input embedding matrix and output projection matrix share weights.
+      -   Helps reduce the number of parameters and improves performance.
+      -   Takeaway: Weight tying is a common trick in language modeling to reduce parameters and enforce symmetry between input and output vocabularies.
+- #tag #GLOSS7c4 *Triangular mask*   
+  - Makes sense if you assume that there is one time step per axis
+- #tag #GLOSS9e0 *top_k:*
+  - Picks the top k results to sample from instead of whole token distribution
+- #tag #GLOSS0a3 *x = x + self.attn(self.ln_1(x))*
+  - This row (and the row after) apply layer normalization before the layer, not between layer and activation
+- #tag #GLOSSf36 *Dropout*
+  - Input tensor to any layer has a small chance of having some elements zerod
+    - Creates regulraziation because it introduces noise
+    - Probability of around 10% acc to GPT? Might not be true tho
+    - (Disabled during inference)
+- #tag #GLOSS143 *Temperature*
+  - Temperature between 0 and 1 usually
+    - Divide logits (values pre softmax) by temperature
+    - Since softmax uses e**xi in nom. and denom. this makes the distribution more skewed
+- #tag #GLOSS918 *Weight decay*
+  - Used instead of L2 reg when using ADAM
+  - W = W - lr * lam * W (After gradient update)
+    - in other words we literally shrink the weight size by a small factor every time step 
+      - Thereby name of weight decay
+- #tag #GLOSS685 *Embeddings*
+  - For number of tokens in vocabulary V and embed vector dimensionality d:
+    - Embedding matrix is Vxd
+    - Just do lookup with token index 
+    - similarities and disimilarities in meaning are learned during training
+- #tag #GLOSS826 *Class GPT*
+  - Is the main nn.module which contains a nn.moduleDict for all submodules
+  - I'm not finding the usage of GPT.forward() anywhere so I assume it's something that we overwrite from nn.module, that's run when model.eval() is used
+
+
+
+
+
+
+
+
+
+
+
+##### Other:
+
+
+asd
