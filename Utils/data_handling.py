@@ -499,7 +499,7 @@ class UnifiedBucketLoader:
 
 
 # Create custom dataloader
-def create_DataLoader(filename, batch_size, seq_Length, shuffle=True, stride=1, level='char', tokenization='nltk_shakespeare', vocab=None, record_tokens=False, advanced_batching=False, boundaries=None ):
+def create_DataLoader(filename, batch_size, seq_Length, shuffle=True, stride=1, level='char', tokenization='nltk_shakespeare', vocab=None, record_tokens=False, advanced_batching=False, boundaries=None, traverse='once' ):
     '''Create a DataSet, DataLoader and Vocabulary based on the hyperparameters given to it.
     
     Inputs:
@@ -534,6 +534,10 @@ def create_DataLoader(filename, batch_size, seq_Length, shuffle=True, stride=1, 
         boundaries: These are the upper boundaries to determine which play goes into which bucket for sampling. If None is given, the standard
             boundaries found by experimenting with the dataset are used (tbh I would just keep them that way... its only if you want to experiment
             with the batch size where you have to maybe edit the boundaries to allow bigger buckets)
+        traverse: (str) ['once', 'balanced', 'partial']: If set to 'once' each play gets traversed exaclty once per epoch. 
+        If set to balanced, plays are repeated as often as they fit into the largest play in the same bucket.
+        If set to partial, plays within the same bucket are repeated until the biggest play in the bucket is traversed once,
+        i.e. shorter plays do not have to end, they are likely to end in the middle of the play
         '''
 
     # If no vocabulary was given instantiate a new one
@@ -573,7 +577,19 @@ def create_DataLoader(filename, batch_size, seq_Length, shuffle=True, stride=1, 
         bucket_loaders = {}
         for bucket_id, play_indices in buckets.items():
             # TODO: You could make this modular, to allow people to choose how much to traverse to each (or maybe to steer that in between epochs)
-            max_samples_per_play = {play_idx: len(dataset.samples[play_idx]) for play_idx in play_indices} # This ensures that each play is traversed exactly once
+            if traverse == 'once':
+                # This ensures that each play is traversed exactly once
+                max_samples_per_play = {play_idx: len(dataset.samples[play_idx]) for play_idx in play_indices} 
+
+            elif traverse == 'balanced': # Traverse in  a balanced way
+                max_len = max(len(dataset.samples[i]) for i in play_indices)
+                max_samples_per_play = {idx: math.ceil(max_len / len(play_samples)) * len(play_samples) for idx, play_samples in enumerate(dataset.samples)}
+
+            elif traverse == 'partial': # Traverse in a as long as largest play in bucket is playing
+                max_len = max(len(dataset.samples[i]) for i in play_indices)
+                max_samples_per_play = {play_idx: max_len for play_idx in play_indices}
+            else:
+                raise ValueError('Wrong traverse argument was given')
 
             # TODO: Maybe allow different batch sizes for different buckets...
             sampler = BucketedPlaySampler(dataset=dataset,play_indices=play_indices, batch_size=batch_size, 
