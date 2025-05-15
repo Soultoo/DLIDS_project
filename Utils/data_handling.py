@@ -2,6 +2,10 @@ import torch
 import nltk
 from torch.utils.data import Dataset, DataLoader
 from nltk.tokenize import RegexpTokenizer
+import random
+import math
+import itertools
+from collections import defaultdict
 
 
 # Import global variables
@@ -61,8 +65,9 @@ class Vocabulary():
         self.id2token = []
 
         # The padding symbol will be used to ensure that all tensors in a batch
-        # have equal length.
-        self.token2id[PADDING_SYMBOL] = 0
+        # have equal length. (i.e. the padding symbol is only used if a sample is not long enough 
+        # (mostly for advanced batching where padding gets added before the ENDTOKEN of each play))
+        self.token2id[PADDING_SYMBOL] = len(self.id2token)
         self.id2token.append(PADDING_SYMBOL)
 
         self.token2id[ENDTOKEN] = 1
@@ -76,10 +81,7 @@ class Vocabulary():
         self.token2id[UNKNOWN_SYMBOL] = len(self.id2token)
         self.id2token.append(UNKNOWN_SYMBOL)
 
-        # Also add the Padding symbol to the vocabulary (the padding symbol is only used if a sample is not long enough 
-        # (mostly for advanced batching where padding gets added before the ENDTOKEN of each play))
-        self.token2id[PADDING_SYMBOL] = len(self.id2token)
-        self.id2token.append(PADDING_SYMBOL)
+        
 
     def add_token(self, token):
         '''Adds the token to the vocabulary and returns its (newly) assigned ID. If the token is already added
@@ -88,6 +90,8 @@ class Vocabulary():
             token_id = len(self.id2token)
             self.token2id[token] = token_id
             self.id2token.append(token)
+        
+        return token_id
     
     def lookup_token(self, token):
         '''Checks if the token is in the vocabulary and returns the ID for the UNKNOWN_SYMBOL in case the token was not found.
@@ -133,7 +137,7 @@ class ShakespeareDataset(Dataset):
         self.seq_length = seq_length
         self.tokenization = tokenization
         self.level = level
-        self.record_tokenns = record_tokens
+        self.record_tokens = record_tokens
         self.advanced_batching = advanced_batching
         self.stride = stride
 
@@ -149,7 +153,8 @@ class ShakespeareDataset(Dataset):
             elif tokenization == 'nltk_shakespeare':
                 self.tokenize = ShakespeareTokenizer().tokenize
             elif tokenization == 'BPE':
-                pass # NOT IMPLEMENTED YET
+                raise NotImplementedError("Advanced batching not implemented yet.")
+                
 
         # Character level embedding
         else:
@@ -161,13 +166,10 @@ class ShakespeareDataset(Dataset):
 
         tokenized_text = self.tokenize(text) # tokenizes the text and return a list of tokens
 
-        
-
-
         # Transform the text into respective IDs
         id_tokenized_text = []
         for token in tokenized_text:
-            if record_tokens:
+            if self.record_tokens:
                 id = vocab.add_token(token)
                 id_tokenized_text.append(id)
             else:
@@ -175,40 +177,43 @@ class ShakespeareDataset(Dataset):
                 id_tokenized_text.append(id)
         
         
-        self.total_samples = 0
-        if not advanced_batching:
-            # Store all samples and labels each just in a single list.
-            self.samples = [] # Is just a list of samples
-            self.labels = [] # Is just a list of labels
+        padding_id = self.vocab.token2id[PADDING_SYMBOL]
+        endtoken_id = self.vocab.token2id[ENDTOKEN]
+        section_marker_ids =[]
+        for markerToken in SECTION_MARKER:
+            section_marker_ids.append(self.token2id[markerToken])
 
-            self.samples, self.labels = self.create_samples(id_tokenized_text, seq_length=self.seq_length, stride=self.stride)
-            self.total_samples = len(self.samples)
+
+
+        # Store all samples and labels each just in a single list. 
+        # WITHOUT: Advanced batching: samples and labels are a 2D list dim: (n_samples, seq_length)
+        # WITH: Advanced batching: samples and labels are a 3D list dim: (n_plays, n_samples, seq_length)
+        self.samples, self.labels = self.create_data(id_tokenized_text,padding_id=padding_id, endtoken_id=endtoken_id, 
+                                                     section_marker_ids=section_marker_ids, seq_length=self.seq_length, 
+                                                     stride=self.stride, advanced_batching=self.advanced_batching)
+        
+        if advanced_batching:
+            self.n_plays = len(self.samples)
+            self.n_samples = sum([len(play) for play in self.samples])
+        else:
+            self.n_plays = None # Is not defined here as we did not differentiate between plays
+            self.n_samples = len(self.samples)
+
+        # To get to the real samples in advanced indexing, you will need "read_indices", for each play exactly one. These
+        # read indices will act like bookmarks, so that the dataset knows that when it is supposed to give a sample from play
+        # x, what the last sample was it retrieved, and so it knows which is the next sample to retrieve
+        # Also initiate a length dict, that saves how long each play is so that we know when to start from the beginning
+        if self.advanced_batching:
+            self.read_indices = {}
+            self.play_length = {}
+            for play_id in range(self.n_plays):
+                self.read_indices[play_id] = 0
+                self.play_length[play_id] = len(self.samples[play_id])
+
+        
+
             
 
-
-
-        else: # Use advanced batching
-            # Is a list of the different shakespeare pieces (if the can be extracted). Each piece is again a list
-            # which contains again lists of size seq_length, i.e. each piece has been cut into lists of seq_length.
-            # Note: The last list can be smaller than the sequence length (and is thus padded with the padding symbol
-            # to make that list seq_legnth long!!) 
-            # => This is a 3D list ([idx1][idx2][idx3] = [play][no. of sample in that place][actual sample of the play]
-            # IF that ENDTOKEN was found, the endtoken is not put into samples but only into labels!!
-            samples = []
-            labels = [] # Are the samples with a single offset
-            idx1 = -1 # Start at -1 as we increment it immeaditly in the for loop
-            idx2 = 0
-            idx3 = 0
-            total_token = 0
-            total_samples = 0
-            for token in tokenized_text:
-                # Check if token is the start of a new play
-                if token in SECTION_MARKER:
-                    idx1 += 1
-                    idx2 = 0
-                    idx3 = 0
-                    samples[idx1] = []
-                    samples[idx1].append()
 
     def create_samples(self, id_text, padding_id, endtoken_id, seq_length,stride):
         """
@@ -261,23 +266,78 @@ class ShakespeareDataset(Dataset):
             labels.append(y_seq)
 
         return samples, labels
+    
 
+    def create_data(self, id_text, padding_id, endtoken_id, section_marker_ids, seq_length, stride, advanced_batching):
 
-
+        # Traverse the text and create samples play by play
+        plays = [] # List of list containing a play in each list
+        current_play = []
+        start_idx = 0
+        end_idx = 0
+        # Checks if play has started, so that we can append the rest to plays
+        # also checksif another play has been started (is there to catch mistakes in the parsing, 
+        # when there is no ENDTOKEN to end a play before another section marker marks the beginning of a new play)
+        play_started = False 
         
+        for token_id in id_text:
+            # Check if we have a new play
+            if token_id in section_marker_ids and not play_started:
+                play_started = True
+                current_play = [token_id]
+            elif token_id in section_marker_ids and play_started: # Should never happen
+                raise ValueError('A play was started before another one ended. Mistakes in parsing are likely')
+            # Play has ended => Save the play in its own list
+            elif token_id == endtoken_id and play_started:
+                current_play.append(token_id)
+                plays.append(current_play)
+                play_started = False
+            elif play_started: # Ensures that token in between plays (even tho they should not exist) are not recorded anymore
+                current_play.append(token_id)
 
+        # Iterate through the plays to create samples
+        samples_list = []
+        labels_list = []
+        for play_text in plays:
+            samples, labels = self.create_samples(play_text,padding_id, endtoken_id, seq_length, stride) # These are 2D lists
+
+            # If advanced batching is enable the 2D lists get accumulated to a 3D list dim: (n_play, n_samples, seq_length)
+            if advanced_batching:
+                samples_list.append(samples)
+                labels_list.append(labels)
+            # If not all samples should be collected into a single 2D list of dim (n_samples, seq_length)
+            else:
+                samples_list.extend(samples)
+                labels_list.extend(labels)
         
-        
+        return samples_list, labels_list
+
+
 
     def __len__(self):
-        return self.total_samples
+        if self.advanced_batching:
+            return self.n_plays
+        else:
+            return self.n_samples
 
     def __getitem__(self, idx):
-        pass
+
+        if self.advanced_batching: # Here is idx an index of the first dim of samples, i.e. its an index for a play not an indivual sample
+            sample = self.samples[idx][self.read_indices[idx]]
+            label = self.labels[idx][self.read_indices[idx]]
+            # Lastly, increment the read_index of that play. If that increment would lead us to be outside of the play reset the read index to 0
+            self.read_indices[idx] += 1
+            if self.read_indices[idx] == self.play_length[idx]:
+                self.read_indices[idx] = 0 # Skip to the beginning of the play
+
+            return sample, label # Is again just two lists of lenght seq_length containing the data point
+        
+        else: 
+            return self.samples[idx], self.labels[idx]
         
         
 
-def collate_fn_normal(batch):
+def collate_fn(batch):
     '''Takes a batch and preperares them to be in the right format to be given as samples, labels
     Input: 
         batch: is a list of tuples, each tuple is a (sample, label) pair. Each sample is a list and each label is a list
@@ -291,21 +351,155 @@ def collate_fn_normal(batch):
 
     return samples_tensor, labels_tensor
 
-def collate_fn_advanced():
 
-    # Here
-    # if token[-1] == ENDTOKEN
-    # DANN WURDE DAS ENDTOKEN RICHTIG ERKANNT UND PADDING KANN MANN dann vor dem endtoken machen
-    # Überleg dir noch wie du das auf char ebene machst mabye checke dass alle token länge 1 haben und dann 
-    # kannst du das padding token als ID(!!) vor dem token len(ENDTOKEN) einfügen
-    # len(token[-1]) == 1 and token[-1]
-    # NEE USE EINE CUSTOM CALLABLE CLASS UM DAS ZU MACHEN UND SPEICHERE DA DIE SACHEN EINFACH DRIN AB!!
-    # DANN KANNST DU EINFACH CHECKEN AUF WELCHEM LEVEL WIR SIND UND DAS DEMENTSPRECHEN MACHEN
-    print('WARNING: ADVANCED BATCHING IS NOT YET IMPLEMENTED!!')
+
+
+def create_play_buckets(dataset, boundaries):
+    """ Function creates buckets full of play indices. In each bucket we collect plays of similar length.
+    Inputs:
+        dataset: The custom Pytorch dataset (NOTE: We make use of the  exposure of  .samples as a 3D structure!!).
+        boundaries: List of upper bounds for buckets (e.g. [50, 150, 500])
+
+    Returns:
+        buckets: dict mapping bucket_id to list of play indices.
+    """
+    buckets = defaultdict(list)
+    for play_idx, play_samples in enumerate(dataset.samples): #play_samples is a list of samples which are also lists
+        n_samples_in_play = len(play_samples)
+        for i, boundary in enumerate(boundaries):
+            if n_samples_in_play <= boundary:
+                buckets[i].append(play_idx)
+                break
+        else:
+            # Goes into last bucket if exceeds all boundaries
+            print('A play exceeds the most upper boundary that was given and was put into the last bucket.')
+            buckets[len(boundaries)].append(play_idx)
+    return buckets
+
+class BucketedPlaySampler(torch.utils.data.Sampler):
+    def __init__(self, dataset, play_indices, batch_size, max_samples_per_play=None, drop_last=True):
+        """ This is a CustomBatch Sampler that samples from a specific set of plays determined by play_indices
+        Input:
+            dataset (ShakespeareDataset): The dataset instance. Must implement __len__ and indexing by play index.
+            play_indices: (list): The play_indices are the subset of play indices for a specific bucket, so that we only sample from that bucket with that sampler
+            batch_size (int): Number of unique plays per batch.
+            max_samples_per_play (int or dict): How many times we can sample from each play in one epoch. 
+                => Its chosen outside but i would recommend choosing this in some form that guarantees that the whole play
+                is actually traversed (so that max_samples_per_play >= n_samples in play)
+                Can be an int (applied to all), or a dict {play_idx: max_samples}.
+            drop_last (bool): Whether to drop the (last) incomplete batch. (NOTE: Depending on the size of the bucket 
+                incomplete batches could start wayyy before the first batch and you could potentially loose a lot of data if the 
+                buckets are too big. Nevertheless when aiming for batch_size consistency thats the trade off we have to do...)
+        """
+
+        self.dataset = dataset
+        self.play_indices = play_indices
+        self.batch_size = batch_size
+        self.drop_last = drop_last
+        self.sample_counts = self.init_sample_counts(max_samples_per_play) #{idx: max_samples_per_play for idx in play_indices}
+
+    def init_sample_counts(self, max_samples_per_play):
+        # Either fixed multiplier or per-play count
+        if max_samples_per_play is None:
+            raise ValueError("You must specify max_samples_per_play to avoid infinite epochs.")
+        elif isinstance(max_samples_per_play, int):
+            return {idx: max_samples_per_play for idx in self.play_indices}
+        elif isinstance(max_samples_per_play, dict):
+            return max_samples_per_play
+        else:
+            raise TypeError("max_samples_per_play must be int or dict.")
+
+    def __iter__(self):
+        # Create mutable copy to track remaining samples
+        remaining = self.sample_counts.copy()
+        # This will create an initial list where each play is included ONCE IF they can be included
+        # => This is done to avoid that a play can occur more than once in a batch
+        available_plays = [i for i in remaining if remaining[i] > 0]
+        # This will collect the order of the plays (it will be a 1D list instead of a 2D list through which we traverse by slicing when interating)
+        batch = []
+        while available_plays:
+            # Shuffle at each batch construction
+            random.shuffle(available_plays)
+            # Select play
+            selected = available_plays[:self.batch_size]
+            batch.extend(selected)
+            # Go through the selected plays to reduce their counter with which they can occur
+            for idx in selected:
+                remaining[idx] -= 1
+                if remaining[idx] <= 0:
+                    available_plays.remove(idx)
+
+        # Create batch-wise iterator
+        for i in range(0, len(batch), self.batch_size):
+            b = batch[i:i + self.batch_size]
+            if len(b) < self.batch_size and self.drop_last:
+                continue
+            yield b
+
+    def __len__(self):
+        # Estimate total number of full batches from that bucket
+        total = sum(self.sample_counts.values()) # How many samples are we having in total?
+        # Thats of course just an approximation because it could stop sooner with drop last
+        return total // self.batch_size if self.drop_last else math.ceil(total / self.batch_size)
+
+
+
+
+
+class UnifiedBucketLoader:
+    def __init__(self, bucket_loaders, bucket_weights=None):
+        """ This class manages the different dataloaders that have been initialized with the bucket samplers
+        and chooses from which dataloader to sample from. This is done, so that we later still only have one 
+        data loader and the whole logic behid multiple dataloaders is something we can abstract from.
+        Inputs:
+            bucket_loaders (dict): {bucket_id: DataLoader}, i.e. it contains a CustomDataLoader for each bucket
+            bucket_weights (dict or None): {bucket_id: weight} to control sampling probability. 
+                                           If None, uniform sampling.
+        """
+        # Load information about buckets
+        self.bucket_ids = list(bucket_loaders.keys())
+        self.loaders = bucket_loaders
+
+        # Collect all the iterators of the buckets => Idea is to put every Dataloader in this artifical loop
+        # in which we decide which loop move forward manually
+        self.iters = {bid: iter(loader) for bid, loader in bucket_loaders.items()}
+
+        if bucket_weights is None:
+            self.weights = [1.0] * len(self.bucket_ids)
+        else:
+            self.weights = [bucket_weights.get(bid, 0.0) for bid in self.bucket_ids]
+
+    # Implement __iter__ method so that we can use it as a "normal" data loader
+    def __iter__(self):
+        return self
+
+    # __next__ method is used for the iterator in the list.
+    def __next__(self):
+        # If all iterators of all dataloader terminated we can terminate as well
+        if not self.iters:
+            raise StopIteration
+
+        # Try to draw a batch from one of the available bucket iterators as long as there are iterators available
+        while self.iters:
+            # Choose bucket
+            bucket_id = random.choices(self.bucket_ids, weights=self.weights, k=1)[0]
+            # Try iterating that bucket 
+            try:
+                return next(self.iters[bucket_id])
+            except StopIteration: # If it does not work, it means the iterator is done => Remove exhausted iterator
+                # Seach for index of hte bucke_id => Can't be sure that is the same as the ID as buckets was a dict and that is unordered
+                idx = self.bucket_ids.index(bucket_id)
+                del self.iters[bucket_id]
+                del self.bucket_ids[idx]
+                del self.weights[idx]
+
+        raise StopIteration
+
+
+
 
 # Create custom dataloader
-
-def create_DataLoader(filename, batch_size, seq_Length, shuffle=True, stride=1, level='char', tokenization='nltk_shakespeare', vocab=None, record_tokens=False, advanced_batching=False):
+def create_DataLoader(filename, batch_size, seq_Length, shuffle=True, stride=1, level='char', tokenization='nltk_shakespeare', vocab=None, record_tokens=False, advanced_batching=False, boundaries=None ):
     '''Create a DataSet, DataLoader and Vocabulary based on the hyperparameters given to it.
     
     Inputs:
@@ -331,6 +525,15 @@ def create_DataLoader(filename, batch_size, seq_Length, shuffle=True, stride=1, 
         advanced_batching: (Boolean): Determines, if you want to use advanced batching or not 
             (needed for persistent state RNNs, and LSTMs). Advanced batching splits up the corpus into 
             the individual plays and makes the Dataloader iterate over them separately!!
+            NOTE: advanced_batching REQUIRES EITHER chararcter level tokenization OR nltk_shakespeare tokenization to work correctly!!
+            NOTE: THe batch size in advanced batching is responsible for how well the advanced batching can work. Too large batch sizes 
+            reduce the ability to split the plays into buckets where each bucket holds plays of similar length. Consequently the buckets
+            have to be larger, which means that shorter plays are going to be oversampled a lot (might introduce bias into the data)
+            Thus, with advanced batching, choose a adequate batch_size. Experimenting with it has shown that a batch size of 
+            XXX seems to work well with the shakespeare cropus, if XXX buckets are used.
+        boundaries: These are the upper boundaries to determine which play goes into which bucket for sampling. If None is given, the standard
+            boundaries found by experimenting with the dataset are used (tbh I would just keep them that way... its only if you want to experiment
+            with the batch size where you have to maybe edit the boundaries to allow bigger buckets)
         '''
 
     # If no vocabulary was given instantiate a new one
@@ -343,12 +546,48 @@ def create_DataLoader(filename, batch_size, seq_Length, shuffle=True, stride=1, 
                                  level=level,tokenization=tokenization, record_tokens=record_tokens, 
                                  advanced_batching=advanced_batching, stride=stride)
     
-    if advanced_batching:
-        collate_fn = collate_fn_advanced
-    else:
-        collate_fn = collate_fn_normal
-    # Create DataLoader
-    dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=shuffle,collate_fn=collate_fn)
 
-    return dataloader, dataset, vocab
+    # Create DataLoader
+    if not advanced_batching:
+        # A simple dataloader is enough
+        dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=shuffle,collate_fn=collate_fn)
+    else:
+        # With adavanced batching we have to put in a bit more work...
+        # 1. Create the buckets of the play
+        if buckets == None: # Create the boundaries based on my own experimenting 
+        # Step 1: Create buckets
+            boundaries = [50, 150] # Divide into short and long plays
+        buckets = create_play_buckets(dataset, boundaries)
+
+        # 2. Compute bucket weights by total sample volume, i.e. buckets that have more samples in them get chosen more often
+        # this is done to achieve a balance where all types of plays are continously seen during the training of one epoch
+        bucket_weights = {}
+        for bucket_id, play_indices in buckets.items():
+            total_samples = sum(len(dataset.samples[play_idx]) for play_idx in play_indices)
+            bucket_weights[bucket_id] = total_samples
+
+        total_weight = sum(bucket_weights.values())
+        bucket_weights = {k: v / total_weight for k, v in bucket_weights.items()}
+
+        # 3. Create per-bucket loaders, i.e. create one Data loader for each bucket, which we will feed to the Unified Dataloader
+        bucket_loaders = {}
+        for bucket_id, play_indices in buckets.items():
+            # TODO: You could make this modular, to allow people to choose how much to traverse to each (or maybe to steer that in between epochs)
+            max_samples_per_play = {play_idx: len(dataset.samples[play_idx]) for play_idx in play_indices} # This ensures that each play is traversed exactly once
+
+            # TODO: Maybe allow different batch sizes for different buckets...
+            sampler = BucketedPlaySampler(dataset=dataset,play_indices=play_indices, batch_size=batch_size, 
+                                          max_samples_per_play=max_samples_per_play,drop_last=True)
+            loader = DataLoader(dataset, batch_sampler=sampler, collate_fn=collate_fn)
+            bucket_loaders[bucket_id] = loader
+
+        #4. Create the  unified data loader with automatic weights
+        unified_loader = UnifiedBucketLoader(bucket_loaders, bucket_weights)
+
+
+    
+    if advanced_batching:
+        return unified_loader, dataset, vocab
+    else:
+        return dataloader, dataset, vocab
     
