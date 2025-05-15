@@ -378,7 +378,7 @@ O, that sad breath his spongy lungs bestow’d,
 O, all that borrowed motion, seeming owed,
 Would yet again betray the fore-betrayed,
 And new pervert a reconciled maid.’
-<<POETRY>>
+<<END>><<POETRY>>
 THE PASSIONATE PILGRIM
 
 
@@ -957,7 +957,7 @@ Thus of every grief in heart
 He with thee doth bear a part.
 These are certain signs to know
 Faithful friend from flatt’ring foe.
-<<POETRY>>
+<<END>><<POETRY>>
 THE PHOENIX AND THE TURTLE
 
 
@@ -1048,7 +1048,7 @@ Truth and beauty buried be.
 To this urn let those repair
 That are either true or fair;
 For these dead birds sigh a prayer.
-<<POETRY>>
+<<END>><<POETRY>>
 THE RAPE OF LUCRECE
 
 
@@ -3232,7 +3232,7 @@ And so to publish Tarquin’s foul offence;
 Which being done with speedy diligence,
     The Romans plausibly did give consent
     To Tarquin’s everlasting banishment.
-<<POETRY>>
+<<END>><<POETRY>>
 VENUS AND ADONIS
 
 
@@ -3261,7 +3261,7 @@ expectation.
 
 Your honour’s in all duty,
 WILLIAM SHAKESPEARE.
-<<POETRY>>
+<<END>><<POETRY>>
 VENUS AND ADONIS
 
 Even as the sun with purple-colour’d face
@@ -4661,3 +4661,4 @@ In her light chariot quickly is convey’d;           1192
 
 
   FINIS
+<<END>>

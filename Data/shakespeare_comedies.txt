@@ -4959,7 +4959,7 @@ Ours be your patience then, and yours our parts;
 Your gentle hands lend us, and take our hearts._
 
  [_Exeunt omnes._]
-<<COMEDY>>
+<<END>><<COMEDY>>
 AS YOU LIKE IT
 
 
@@ -9394,7 +9394,7 @@ have good beards, or good faces, or sweet breaths will for my kind
 offer, when I make curtsy, bid me farewell.
 
 [_Exit._]
-<<COMEDY>>
+<<END>><<COMEDY>>
 THE COMEDY OF ERRORS
 
 
@@ -12592,7 +12592,7 @@ We came into the world like brother and brother,
 And now let’s go hand in hand, not one before another.
 
  [_Exeunt._]
-<<COMEDY>>
+<<END>><<COMEDY>>
 CYMBELINE
 
 
@@ -18474,7 +18474,7 @@ Set on there! Never was a war did cease,
 Ere bloody hands were wash’d, with such a peace.
 
  [_Exeunt._]
-<<COMEDY>>
+<<END>><<COMEDY>>
 LOVE’S LABOUR’S LOST
 
 
@@ -23479,7 +23479,7 @@ The words of Mercury are harsh after the songs of Apollo.
 You that way, we this way.
 
 [_Exeunt._]
-<<COMEDY>>
+<<END>><<COMEDY>>
 MEASURE FOR MEASURE
 
 
@@ -28360,7 +28360,7 @@ So, bring us to our palace, where we’ll show
 What’s yet behind that’s meet you all should know.
 
 [_Exeunt._]
-<<COMEDY>>
+<<END>><<COMEDY>>
 THE MERCHANT OF VENICE
 
 
@@ -32528,7 +32528,7 @@ Well, while I live, I’ll fear no other thing
 So sore as keeping safe Nerissa’s ring.
 
  [_Exeunt._]
-<<COMEDY>>
+<<END>><<COMEDY>>
 THE MERRY WIVES OF WINDSOR
 
 
@@ -37348,7 +37348,7 @@ To Master Brook you yet shall hold your word,
 For he tonight shall lie with Mistress Ford.
 
 [_Exeunt._]
-<<COMEDY>>
+<<END>><<COMEDY>>
 A MIDSUMMER NIGHT’S DREAM
 
 
@@ -40830,7 +40830,7 @@ PUCK.
    And Robin shall restore amends.
 
  [_Exit._]
-<<COMEDY>>
+<<END>><<COMEDY>>
 MUCH ADO ABOUT NOTHING
 
 
@@ -45427,7 +45427,7 @@ Think not on him till tomorrow: I’ll devise thee
 brave punishments for him. Strike up, pipers!
 
 [Dance. Exeunt.]
-<<COMEDY>>
+<<END>><<COMEDY>>
 PERICLES, PRINCE OF TYRE
 
 
@@ -49620,7 +49620,7 @@ ACT V
 
 
 Dramatis Personæ
-<<COMEDY>>
+<<END>><<COMEDY>>
 THE TAMING OF THE SHREW
 
 
@@ -54485,7 +54485,7 @@ LUCENTIO.
 ’Tis a wonder, by your leave, she will be tam’d so.
 
 [_Exeunt._]
-<<COMEDY>>
+<<END>><<COMEDY>>
 THE TEMPEST
 
 
@@ -58318,7 +58318,7 @@ Mercy itself, and frees all faults.
     Let your indulgence set me free.
 
  [_Exit._]
-<<COMEDY>>
+<<END>><<COMEDY>>
 TWELFTH NIGHT; OR, WHAT YOU WILL
 
 
@@ -62811,7 +62811,7 @@ _   A great while ago the world begun,
      And we’ll strive to please you every day._
 
  [_Exit._]
-<<COMEDY>>
+<<END>><<COMEDY>>
 THE TWO GENTLEMEN OF VERONA
 
 
@@ -67059,7 +67059,7 @@ That done, our day of marriage shall be yours,
 One feast, one house, one mutual happiness.
 
 [_Exeunt._]
-<<COMEDY>>
+<<END>><<COMEDY>>
 THE TWO NOBLE KINSMEN
 
 
@@ -72567,7 +72567,7 @@ Rest at your service. Gentlemen, good night.
 [_Flourish. Exit._]
 
 FINIS
-<<COMEDY>>
+<<END>><<COMEDY>>
 THE WINTER’S TALE
 
 
@@ -77578,3 +77578,4 @@ Perform’d in this wide gap of time, since first
 We were dissever’d. Hastily lead away!
 
  [_Exeunt._]
+<<END>>
