@@ -1,10 +1,8 @@
 import torch
 import torch.nn as nn
 
-import torch
-import torch.nn as nn
 
-class RNN(nn.Module):
+class LSTM(nn.Module):
     def __init__(self, vocab_size, embedding_dim, hidden_size, output_size, num_layers=1, dropout=0.0, use_pretrained_embedding=False, pretrained_weights=None):
         super().__init__()
 
@@ -15,18 +13,17 @@ class RNN(nn.Module):
         else:
             self.embedding = nn.Embedding(vocab_size, embedding_dim)
 
-        self.rnn = nn.RNN(embedding_dim, hidden_size, num_layers, batch_first=True, dropout=dropout)
+        self.lstm = nn.LSTM(embedding_dim, hidden_size, num_layers, batch_first=True, dropout=dropout)
         self.fc = nn.Linear(hidden_size, output_size)
 
     def forward(self, x, hidden=None):
         x = self.embedding(x)
-        out, hidden = self.rnn(x, hidden)
+        out, hidden = self.lstm(x, hidden)
         logits = self.fc(out[:, -1])
         return logits, hidden
 
 
-
-def train_rnn(model, dataloader, optimizer, device='cpu', num_epochs=10, print_every=100):
+def train_lstm(model, dataloader, optimizer, device='cpu', num_epochs=10, print_every=100):
     model.to(device)
     model.train()
     criterion = nn.CrossEntropyLoss()
@@ -52,7 +49,7 @@ def train_rnn(model, dataloader, optimizer, device='cpu', num_epochs=10, print_e
     print("Training finished.")
 
 
-def evaluate_rnn(model, dataloader, device='cpu'):
+def evaluate_lstm(model, dataloader, device='cpu'):
     model.to(device)
     model.eval()
     criterion = nn.CrossEntropyLoss()
