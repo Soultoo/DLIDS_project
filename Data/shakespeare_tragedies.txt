@@ -6636,7 +6636,7 @@ And then to Rome. Come, Dolabella, see
 High order in this great solemnity.
 
  [_Exeunt omnes._]
-<<TRAGEDY>>
+<<END>><<TRAGEDY>>
 THE TRAGEDY OF CORIOLANUS
 
 
@@ -13078,7 +13078,7 @@ Yet he shall have a noble memory.
 Assist.
 
 [_Exeunt, bearing the body of Martius. A dead march sounded._]
-<<TRAGEDY>>
+<<END>><<TRAGEDY>>
 THE TRAGEDY OF HAMLET, PRINCE OF DENMARK
 
 
@@ -19773,7 +19773,7 @@ Go, bid the soldiers shoot.
 
 [_Exeunt, bearing off the bodies, after which a peal of ordnance is
 shot off._]
-<<TRAGEDY>>
+<<END>><<TRAGEDY>>
 THE TRAGEDY OF JULIUS CAESAR
 
 
@@ -24417,7 +24417,7 @@ So call the field to rest, and let’s away,
 To part the glories of this happy day.
 
 [_Exeunt._]
-<<TRAGEDY>>
+<<END>><<TRAGEDY>>
 THE TRAGEDY OF KING LEAR
 
 
@@ -30523,7 +30523,7 @@ The oldest hath borne most; we that are young
 Shall never see so much, nor live so long.
 
  [_Exeunt with a dead march._]
-<<TRAGEDY>>
+<<END>><<TRAGEDY>>
 THE TRAGEDY OF MACBETH
 
 
@@ -34669,7 +34669,7 @@ So thanks to all at once, and to each one,
 Whom we invite to see us crown’d at Scone.
 
  [_Flourish. Exeunt._]
-<<TRAGEDY>>
+<<END>><<TRAGEDY>>
 THE TRAGEDY OF OTHELLO, THE MOOR OF VENICE
 
 
@@ -40948,7 +40948,7 @@ Myself will straight aboard, and to the state
 This heavy act with heavy heart relate.
 
 [_Exeunt._]
-<<TRAGEDY>>
+<<END>><<TRAGEDY>>
 THE TRAGEDY OF ROMEO AND JULIET
 
 
@@ -46212,7 +46212,7 @@ For never was a story of more woe
 Than this of Juliet and her Romeo.
 
  [_Exeunt._]
-<<TRAGEDY>>
+<<END>><<TRAGEDY>>
 THE LIFE OF TIMON OF ATHENS
 
 
@@ -50630,7 +50630,7 @@ Prescribe to other, as each other’s leech.
 Let our drums strike.
 
 [_Exeunt._]
-<<TRAGEDY>>
+<<END>><<TRAGEDY>>
 THE TRAGEDY OF TITUS ANDRONICUS
 
 
@@ -54752,7 +54752,7 @@ Her life was beastly and devoid of pity;
 And being dead, let birds on her take pity.
 
 [_Exeunt._]
-<<TRAGEDY>>
+<<END>><<TRAGEDY>>
 TROILUS AND CRESSIDA
 
 
@@ -60953,3 +60953,4 @@ Till then I’ll sweat and seek about for eases,
 And at that time bequeath you my diseases.
 
  [_Exit_.]
+<<END>>

@@ -4802,7 +4802,7 @@ And since this business so fair is done,
 Let us not leave till all our own be won.
 
 [_Exeunt._]
-<<HISTORY>>
+<<END>><<HISTORY>>
 THE SECOND PART OF KING HENRY THE FOURTH
 
 
@@ -9995,7 +9995,7 @@ know, Falstaff shall die of a sweat, unless already he be killed with
 your hard opinions; for Oldcastle died a martyr, and this is not the
 man. My tongue is weary; when my legs are too, I will bid you good
 night.
-<<HISTORY>>
+<<END>><<HISTORY>>
 THE LIFE OF KING HENRY THE FIFTH
 
 
@@ -14938,7 +14938,7 @@ Which oft our stage hath shown; and, for their sake,
 In your fair minds let this acceptance take.
 
  [_Exit._]
-<<HISTORY>>
+<<END>><<HISTORY>>
 THE FIRST PART OF HENRY THE SIXTH
 
 
@@ -19565,7 +19565,7 @@ Margaret shall now be queen, and rule the King;
 But I will rule both her, the King, and realm.
 
 [_Exit._]
-<<HISTORY>>
+<<END>><<HISTORY>>
 THE SECOND PART OF KING HENRY THE SIXTH
 
 Contents
@@ -24744,7 +24744,7 @@ Sound drums and trumpets, and to London all;
 And more such days as these to us befall!
 
 [_Exeunt._]
-<<HISTORY>>
+<<END>><<HISTORY>>
 THE THIRD PART OF KING HENRY THE SIXTH
 
 Contents
@@ -29863,7 +29863,7 @@ Sound drums and trumpets! Farewell, sour annoy!
 For here, I hope, begins our lasting joy.
 
 [_Exeunt._]
-<<HISTORY>>
+<<END>><<HISTORY>>
 KING HENRY THE EIGHTH
 
 
@@ -29903,7 +29903,7 @@ Contents
 
 
 Dramatis Personæ
-<<HISTORY>>
+<<END>><<HISTORY>>
 KING HENRY THE EIGHTH
 
 DUKE OF NORFOLK
@@ -34999,7 +34999,7 @@ All the best men are ours; for ’tis ill hap
 If they hold when their ladies bid ’em clap.
 
 [_Exit._]
-<<HISTORY>>
+<<END>><<HISTORY>>
 THE LIFE AND DEATH OF KING JOHN
 
 
@@ -39096,7 +39096,7 @@ And we shall shock them. Nought shall make us rue,
 If England to itself do rest but true.
 
 [_Exeunt._]
-<<HISTORY>>
+<<END>><<HISTORY>>
 KING RICHARD THE SECOND
 JOHN OF GAUNT, Duke of Lancaster - uncle to the King
 EDMUND LANGLEY, Duke of York - uncle to the King
@@ -43380,7 +43380,7 @@ March sadly after; grace my mournings here
 In weeping after this untimely bier.
 
  [_Exeunt._]
-<<HISTORY>>
+<<END>><<HISTORY>>
 KING RICHARD THE THIRD
 
 
@@ -49852,3 +49852,4 @@ Now civil wounds are stopped, peace lives again.
 That she may long live here, God say Amen.
 
 [_Exeunt._]
+<<END>>
