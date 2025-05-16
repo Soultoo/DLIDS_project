@@ -73,7 +73,7 @@ class Vocabulary():
         self.token2id[ENDTOKEN] = 1
         self.id2token.append(ENDTOKEN)
 
-        for i, markerToken in enumerate(SECTION_MARKER):
+        for markerToken in SECTION_MARKER:
             self.token2id[markerToken] = len(self.id2token)
             self.id2token.append(markerToken)
         
@@ -91,9 +91,9 @@ class Vocabulary():
             self.token2id[token] = token_id
             self.id2token.append(token)
         
-        return token_id
+        return self.token2id[token]
     
-    def lookup_token(self, token):
+    def lookup_id(self, token):
         '''Checks if the token is in the vocabulary and returns the ID for the UNKNOWN_SYMBOL in case the token was not found.
         Crucially, it does NOT add the token to the vocabulary!'''
         if token in self.token2id:
@@ -101,7 +101,7 @@ class Vocabulary():
         else:
             return self.token2id[UNKNOWN_SYMBOL]
     
-    def lookup_id(self, id):
+    def lookup_token(self, id):
         '''Returns the token to the corresponding ID, if the ID is not found the UNKNOWN_SYMBOL is returned'''
         if id in self.id2token:
             return self.id2token[id]
@@ -181,7 +181,7 @@ class ShakespeareDataset(Dataset):
         endtoken_id = self.vocab.token2id[ENDTOKEN]
         section_marker_ids =[]
         for markerToken in SECTION_MARKER:
-            section_marker_ids.append(self.token2id[markerToken])
+            section_marker_ids.append(vocab.lookup_id(markerToken))
 
 
 
@@ -530,14 +530,14 @@ def create_DataLoader(filename, batch_size, seq_Length, shuffle=True, stride=1, 
             reduce the ability to split the plays into buckets where each bucket holds plays of similar length. Consequently the buckets
             have to be larger, which means that shorter plays are going to be oversampled a lot (might introduce bias into the data)
             Thus, with advanced batching, choose a adequate batch_size. Experimenting with it has shown that a batch size of 
-            XXX seems to work well with the shakespeare cropus, if XXX buckets are used.
+            XXX seems to work well with the shakespeare cropus, if XXX buckets are used. \\
         boundaries: These are the upper boundaries to determine which play goes into which bucket for sampling. If None is given, the standard
             boundaries found by experimenting with the dataset are used (tbh I would just keep them that way... its only if you want to experiment
-            with the batch size where you have to maybe edit the boundaries to allow bigger buckets)
+            with the batch size where you have to maybe edit the boundaries to allow bigger buckets) \\
         traverse: (str) ['once', 'balanced', 'partial']: If set to 'once' each play gets traversed exaclty once per epoch. 
-        If set to balanced, plays are repeated as often as they fit into the largest play in the same bucket.
-        If set to partial, plays within the same bucket are repeated until the biggest play in the bucket is traversed once,
-        i.e. shorter plays do not have to end, they are likely to end in the middle of the play
+            If set to balanced, plays are repeated as often as they fit into the largest play in the same bucket.
+            If set to partial, plays within the same bucket are repeated until the biggest play in the bucket is traversed once,
+            i.e. shorter plays do not have to end, they are likely to end in the middle of the play
         '''
 
     # If no vocabulary was given instantiate a new one
@@ -606,4 +606,20 @@ def create_DataLoader(filename, batch_size, seq_Length, shuffle=True, stride=1, 
         return unified_loader, dataset, vocab
     else:
         return dataloader, dataset, vocab
+    
+
+
+# For debugging purposes
+if __name__ == '__main__':
+    dataloader, dataset, vocab = create_DataLoader('Data/train_shakespeare_full_corpus.txt', batch_size=10, seq_Length=20,shuffle=True, 
+                      stride=1, level='char', tokenization='nltk_shakespeare', record_tokens=True, 
+                      advanced_batching=False)
+    
+    # Just print the first 10 samples
+    for epoch in range(3):
+        print(f'Epoch:{epoch}')
+        for i, (x, y) in enumerate(dataloader):
+            if i <= 3:
+                print(x)
+                print(y)
     

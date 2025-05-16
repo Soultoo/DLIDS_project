@@ -24921,7 +24921,7 @@ For here, I hope, begins our lasting joy.
 
 [_Exeunt._]
 <<END>><<HISTORY>>
-KING HENRY THE EIGHTH
+THE LIFE OF KING HENRY THE EIGHTH
 
 
 
@@ -24960,7 +24960,7 @@ Contents
 
 
 Dramatis Personæ
-<<END>><<HISTORY>>
+
 KING HENRY THE EIGHTH
 
 DUKE OF NORFOLK
