@@ -451,6 +451,8 @@ class UnifiedBucketLoader:
         """ This class manages the different dataloaders that have been initialized with the bucket samplers
         and chooses from which dataloader to sample from. This is done, so that we later still only have one 
         data loader and the whole logic behid multiple dataloaders is something we can abstract from.
+        As such the Class has to be a generator class itself, so that it can produce iterators on demand
+        (to be more precise to access other iterators on deman while acting like an iterator itself...)
         Inputs:
             bucket_loaders (dict): {bucket_id: DataLoader}, i.e. it contains a CustomDataLoader for each bucket
             bucket_weights (dict or None): {bucket_id: weight} to control sampling probability. 
@@ -458,11 +460,9 @@ class UnifiedBucketLoader:
         """
         # Load information about buckets
         self.bucket_ids = list(bucket_loaders.keys())
-        self.loaders = bucket_loaders
+        self.bucket_loaders = bucket_loaders
 
-        # Collect all the iterators of the buckets => Idea is to put every Dataloader in this artifical loop
-        # in which we decide which loop move forward manually
-        self.iters = {bid: iter(loader) for bid, loader in bucket_loaders.items()}
+        
 
         if bucket_weights is None:
             self.weights = [1.0] * len(self.bucket_ids)
@@ -470,8 +470,40 @@ class UnifiedBucketLoader:
             self.weights = [bucket_weights.get(bid, 0.0) for bid in self.bucket_ids]
 
     # Implement __iter__ method so that we can use it as a "normal" data loader
+    # __iter__ gets called internally when we init a loop with for x in Y
+    # For us to iterate more than once over the object, we are implementing __iter__ to be a generator function, see more here
+    # https://realpython.com/python-iterators-iterables/#exploring-alternative-ways-to-write-__iter__-in-iterables
+    # https://realpython.com/introduction-to-python-generators/#understanding-the-python-yield-statement
     def __iter__(self):
-        return self
+        # Collect all the iterators of the buckets => Idea is to put every Dataloader in this artifical loop
+        # in which we decide which loop move forward manually
+        # NOTE: Initilize it new for every epoch (do NOT safe it to self.), as we need fresh iterators of every loader 
+        # for every new epoch (no matter if the old iterator was exhausted or not)
+        bucket_iters = {bid: iter(loader) for bid, loader in self.bucket_loaders.items()} 
+
+        # Copy it into active ids and weights per epoch so that we can delete them during the epoch without
+        # deleting the original object, as we still need them for the next epochs, when __iter__ gets called again
+        active_ids = self.bucket_ids.copy()
+        weights = self.bucket_weights.copy()
+
+        while active_ids:
+            bucket_id = random.choices(active_ids, weights=weights, k=1)[0]
+            # This is a bit complext but essentially, the generator function should grab the next item
+            # from the iterator of on of the original dataloader. If that dataloader is exhausted
+            # it will raise a StopIteration error, which we will have to catch by hand as we do not use
+            # the data loaders in a real loop but rather go through them manually. (HINT: I could have  done it 
+            # with a default value in next() as well but then i would need to save the next() result in a variable
+            # first e.g. batch = next(bucket_iters[bucket_id], None) and then ask if batch is None: (...Do what is now
+            # in the except statement). It is the same I think, but this saves a bit of space and is clean too, I think )
+            try:
+                yield next(bucket_iters[bucket_id]) # Yields StopIteration if iterator of that bucket is exhausted otherwise yields next item and preserves state of function
+            except StopIteration:
+                # Remove exhausted bucket from this epoch state
+                idx = active_ids.index(bucket_id)
+                del bucket_iters[bucket_id]
+                del active_ids[idx]
+                del weights[idx]
+
 
     # __next__ method is used for the iterator in the list.
     def __next__(self):
