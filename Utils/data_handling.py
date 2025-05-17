@@ -9,7 +9,10 @@ from collections import defaultdict
 
 
 # Import global variables
-from shakespeare_parser import ENDTOKEN, SECTION_MARKER
+from Utils.shakespeare_parser import ENDTOKEN, SECTION_MARKER
+
+# For debugging comment line above out and put instead:
+# from shakespeare_parser import ENDTOKEN, SECTION_MARKER
 
 
 ## Define globale variables
@@ -24,6 +27,12 @@ UNKNOWN_SYMBOL = "<<UNK>>"
 # Max number of words to be predicted if <END> symbol is not reached
 MAX_PREDICTIONS = 20
 
+# Set the boundaries for the buckets. These are my best guess estimates of what could be good buckets
+# Basically you get 2 Buckets, one for Sonnets and one for plays
+# With these buckets I would recommend the 'once' traverse strategy. 
+# For a 'balanced strategy I woud set CHAR_BUCKETS = (2500, 200000)
+WORD_BUCKETS = (200, 50000)
+CHAR_BUCKETS = (2000, 200000)
 
 class ShakespeareTokenizer:
     '''Custom tokenizer. I built it because nltk.word_tokenizer() excludes newline
@@ -64,22 +73,28 @@ class Vocabulary():
         self.token2id = {}
         self.id2token = []
 
+        self.vocab_size = 0
+
         # The padding symbol will be used to ensure that all tensors in a batch
         # have equal length. (i.e. the padding symbol is only used if a sample is not long enough 
         # (mostly for advanced batching where padding gets added before the ENDTOKEN of each play))
         self.token2id[PADDING_SYMBOL] = len(self.id2token)
         self.id2token.append(PADDING_SYMBOL)
+        self.vocab_size += 1
 
         self.token2id[ENDTOKEN] = 1
         self.id2token.append(ENDTOKEN)
+        self.vocab_size += 1
 
-        for i, markerToken in enumerate(SECTION_MARKER):
+        for markerToken in SECTION_MARKER:
             self.token2id[markerToken] = len(self.id2token)
             self.id2token.append(markerToken)
+            self.vocab_size += 1
         
         # Also add the token that describes that a token (in the validation and test sets) is not in the vocabulary
         self.token2id[UNKNOWN_SYMBOL] = len(self.id2token)
         self.id2token.append(UNKNOWN_SYMBOL)
+        self.vocab_size += 1
 
         
 
@@ -90,10 +105,11 @@ class Vocabulary():
             token_id = len(self.id2token)
             self.token2id[token] = token_id
             self.id2token.append(token)
+            self.vocab_size += 1
         
-        return token_id
+        return self.token2id[token]
     
-    def lookup_token(self, token):
+    def lookup_id(self, token):
         '''Checks if the token is in the vocabulary and returns the ID for the UNKNOWN_SYMBOL in case the token was not found.
         Crucially, it does NOT add the token to the vocabulary!'''
         if token in self.token2id:
@@ -101,12 +117,21 @@ class Vocabulary():
         else:
             return self.token2id[UNKNOWN_SYMBOL]
     
-    def lookup_id(self, id):
+    def lookup_token(self, id):
         '''Returns the token to the corresponding ID, if the ID is not found the UNKNOWN_SYMBOL is returned'''
         if id in self.id2token:
             return self.id2token[id]
         else:
             return UNKNOWN_SYMBOL
+        
+    def transform_ID_2_String(self, id_list):
+        '''Transforms a list of ids back into its original string using the vocabulary seen here'''
+        text_list = []
+        for id in id_list:
+            text_list.append(self.lookup_token(id))
+        
+        text = "".join(text_list)
+        return text
 
 
 # Create custom dataclass
@@ -140,6 +165,11 @@ class ShakespeareDataset(Dataset):
         self.record_tokens = record_tokens
         self.advanced_batching = advanced_batching
         self.stride = stride
+        
+
+        # This will save the IDs that are used in the batch (for advanced indexing)
+        # Its going to be empty if advanced batchin is disabled as we do not differentiate between plays
+        self.batch_play_ids = []
 
         # Set tokenization tpye
         # Word level embedding
@@ -153,6 +183,7 @@ class ShakespeareDataset(Dataset):
             elif tokenization == 'nltk_shakespeare':
                 self.tokenize = ShakespeareTokenizer().tokenize
             elif tokenization == 'BPE':
+                # TODO
                 raise NotImplementedError("Advanced batching not implemented yet.")
                 
 
@@ -181,7 +212,7 @@ class ShakespeareDataset(Dataset):
         endtoken_id = self.vocab.token2id[ENDTOKEN]
         section_marker_ids =[]
         for markerToken in SECTION_MARKER:
-            section_marker_ids.append(self.token2id[markerToken])
+            section_marker_ids.append(vocab.lookup_id(markerToken))
 
 
 
@@ -432,6 +463,9 @@ class BucketedPlaySampler(torch.utils.data.Sampler):
         # Create batch-wise iterator
         for i in range(0, len(batch), self.batch_size):
             b = batch[i:i + self.batch_size]
+            # TRICK (THIS IS NOT NICE CODING, but as a shortcut works haha.
+            # Write the information which play_ids have been chosen back to the dataset
+            dataset.batch_play_ids = b
             if len(b) < self.batch_size and self.drop_last:
                 continue
             yield b
@@ -451,6 +485,8 @@ class UnifiedBucketLoader:
         """ This class manages the different dataloaders that have been initialized with the bucket samplers
         and chooses from which dataloader to sample from. This is done, so that we later still only have one 
         data loader and the whole logic behid multiple dataloaders is something we can abstract from.
+        As such the Class has to be a generator class itself, so that it can produce iterators on demand
+        (to be more precise to access other iterators on deman while acting like an iterator itself...)
         Inputs:
             bucket_loaders (dict): {bucket_id: DataLoader}, i.e. it contains a CustomDataLoader for each bucket
             bucket_weights (dict or None): {bucket_id: weight} to control sampling probability. 
@@ -458,20 +494,50 @@ class UnifiedBucketLoader:
         """
         # Load information about buckets
         self.bucket_ids = list(bucket_loaders.keys())
-        self.loaders = bucket_loaders
+        self.bucket_loaders = bucket_loaders
 
-        # Collect all the iterators of the buckets => Idea is to put every Dataloader in this artifical loop
-        # in which we decide which loop move forward manually
-        self.iters = {bid: iter(loader) for bid, loader in bucket_loaders.items()}
+        
 
         if bucket_weights is None:
-            self.weights = [1.0] * len(self.bucket_ids)
+            self.bucket_weights = [1.0] * len(self.bucket_ids)
         else:
-            self.weights = [bucket_weights.get(bid, 0.0) for bid in self.bucket_ids]
+            self.bucket_weights = [bucket_weights.get(bid, 0.0) for bid in self.bucket_ids]
 
     # Implement __iter__ method so that we can use it as a "normal" data loader
+    # __iter__ gets called internally when we init a loop with for x in Y
+    # For us to iterate more than once over the object, we are implementing __iter__ to be a generator function, see more here
+    # https://realpython.com/python-iterators-iterables/#exploring-alternative-ways-to-write-__iter__-in-iterables
+    # https://realpython.com/introduction-to-python-generators/#understanding-the-python-yield-statement
     def __iter__(self):
-        return self
+        # Collect all the iterators of the buckets => Idea is to put every Dataloader in this artifical loop
+        # in which we decide which loop move forward manually
+        # NOTE: Initilize it new for every epoch (do NOT safe it to self.), as we need fresh iterators of every loader 
+        # for every new epoch (no matter if the old iterator was exhausted or not)
+        bucket_iters = {bid: iter(loader) for bid, loader in self.bucket_loaders.items()} 
+
+        # Copy it into active ids and weights per epoch so that we can delete them during the epoch without
+        # deleting the original object, as we still need them for the next epochs, when __iter__ gets called again
+        active_ids = self.bucket_ids.copy()
+        weights = self.bucket_weights.copy()
+
+        while active_ids:
+            bucket_id = random.choices(active_ids, weights=weights, k=1)[0]
+            # This is a bit complext but essentially, the generator function should grab the next item
+            # from the iterator of on of the original dataloader. If that dataloader is exhausted
+            # it will raise a StopIteration error, which we will have to catch by hand as we do not use
+            # the data loaders in a real loop but rather go through them manually. (HINT: I could have  done it 
+            # with a default value in next() as well but then i would need to save the next() result in a variable
+            # first e.g. batch = next(bucket_iters[bucket_id], None) and then ask if batch is None: (...Do what is now
+            # in the except statement). It is the same I think, but this saves a bit of space and is clean too, I think )
+            try:
+                yield next(bucket_iters[bucket_id]) # Yields StopIteration if iterator of that bucket is exhausted otherwise yields next item and preserves state of function
+            except StopIteration:
+                # Remove exhausted bucket from this epoch state
+                idx = active_ids.index(bucket_id)
+                del bucket_iters[bucket_id]
+                del active_ids[idx]
+                del weights[idx]
+
 
     # __next__ method is used for the iterator in the list.
     def __next__(self):
@@ -530,14 +596,15 @@ def create_DataLoader(filename, batch_size, seq_Length, shuffle=True, stride=1, 
             reduce the ability to split the plays into buckets where each bucket holds plays of similar length. Consequently the buckets
             have to be larger, which means that shorter plays are going to be oversampled a lot (might introduce bias into the data)
             Thus, with advanced batching, choose a adequate batch_size. Experimenting with it has shown that a batch size of 
-            XXX seems to work well with the shakespeare cropus, if XXX buckets are used.
+            20 seems to work well with the shakespeare cropus, if DEFAULT buckets are used. \\
         boundaries: These are the upper boundaries to determine which play goes into which bucket for sampling. If None is given, the standard
             boundaries found by experimenting with the dataset are used (tbh I would just keep them that way... its only if you want to experiment
-            with the batch size where you have to maybe edit the boundaries to allow bigger buckets)
+            with the batch size where you have to maybe edit the boundaries to allow bigger buckets) \\
         traverse: (str) ['once', 'balanced', 'partial']: If set to 'once' each play gets traversed exaclty once per epoch. 
-        If set to balanced, plays are repeated as often as they fit into the largest play in the same bucket.
-        If set to partial, plays within the same bucket are repeated until the biggest play in the bucket is traversed once,
-        i.e. shorter plays do not have to end, they are likely to end in the middle of the play
+            If set to balanced, plays are repeated as often as they fit into the largest play in the same bucket.
+            If set to partial, plays within the same bucket are repeated until the biggest play in the bucket is traversed once,
+            i.e. shorter plays do not have to end, they are likely to end in the middle of the play.
+            If boundaries are set to None (== Default buckets) I recommend setting traverse to 'once'
         '''
 
     # If no vocabulary was given instantiate a new one
@@ -558,9 +625,12 @@ def create_DataLoader(filename, batch_size, seq_Length, shuffle=True, stride=1, 
     else:
         # With adavanced batching we have to put in a bit more work...
         # 1. Create the buckets of the play
-        if buckets == None: # Create the boundaries based on my own experimenting 
+        if boundaries is None: # Create the boundaries based on my own experimenting 
         # Step 1: Create buckets
-            boundaries = [50, 150] # Divide into short and long plays
+            if level == 'word':
+                boundaries = [*WORD_BUCKETS] # Transform it from a tuple into a list
+            else:
+                boundaries = [*CHAR_BUCKETS] # Divide into short and long plays
         buckets = create_play_buckets(dataset, boundaries)
 
         # 2. Compute bucket weights by total sample volume, i.e. buckets that have more samples in them get chosen more often
@@ -606,4 +676,22 @@ def create_DataLoader(filename, batch_size, seq_Length, shuffle=True, stride=1, 
         return unified_loader, dataset, vocab
     else:
         return dataloader, dataset, vocab
+    
+
+
+# For debugging purposes
+if __name__ == '__main__':
+    dataloader, dataset, vocab = create_DataLoader('Data/train_shakespeare_full_corpus.txt', batch_size=10, seq_Length=20,shuffle=True, 
+                      stride=1, level='char', tokenization='nltk_shakespeare', record_tokens=True, 
+                      advanced_batching=True, traverse='once')
+    
+    # Just print the first 10 samples
+    for epoch in range(3):
+        print(f'Epoch:{epoch}')
+        for i, (x, y) in enumerate(dataloader):
+            if i <= 3:
+                print(x)
+                print(y)
+            else:
+                break
     

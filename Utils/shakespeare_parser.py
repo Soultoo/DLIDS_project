@@ -8,13 +8,13 @@ SECTION_MARKER = ("<<COMEDY>>", "<<TRAGEDY>>", "<<HISTORY>>", "<<POETRY>>", "<<S
 # Declare which plays should go into the validation data set (Roughly 10%)
 validation_plays = {"COMEDY": ["THE TWO NOBLE KINSMEN", "THE WINTER’S TALE"],
                     "TRAGEDY": ["THE TRAGEDY OF TITUS ANDRONICUS"], 
-                    "HISTORY": ["KING RICHARD THE SECOND"],
+                    "HISTORY": ["THE LIFE AND DEATH OF KING RICHARD THE SECOND"],
                     "POETRY": ["VENUS AND ADONIS"],
                     "SONNETS": ["10", "15", "28","30", "34", "49", "52", "66", "78", "93", "104", "112", "132", "144", "150"]      
                     }
 
 # Declare which plays should go into the test validation data set (Roughly 10%)
-test_plays = {"COMEDY": ["THE TWO NOBLE KINSMEN", "THE WINTER’S TALE"],
+test_plays = {"COMEDY": ["THE MERCHANT OF VENICE", "THE MERRY WIVES OF WINDSOR"],
             "TRAGEDY": ["THE TRAGEDY OF ANTONY AND CLEOPATRA"], 
             "HISTORY": [ "THE LIFE OF KING HENRY THE FIFTH"],
             "POETRY": ["THE RAPE OF LUCRECE"],
@@ -63,9 +63,9 @@ def parse_shakespeare_txt(filepath):
         "THE FIRST PART OF HENRY THE SIXTH": "HISTORY",
         "THE SECOND PART OF KING HENRY THE SIXTH": "HISTORY",
         "THE THIRD PART OF KING HENRY THE SIXTH": "HISTORY",
-        "KING HENRY THE EIGHTH": "HISTORY",
+        "THE LIFE OF KING HENRY THE EIGHTH": "HISTORY",
         "THE LIFE AND DEATH OF KING JOHN": "HISTORY",
-        "KING RICHARD THE SECOND": "HISTORY",
+        "THE LIFE AND DEATH OF KING RICHARD THE SECOND": "HISTORY",
         "KING RICHARD THE THIRD": "HISTORY",
 
         # Poetry

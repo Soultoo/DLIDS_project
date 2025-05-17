@@ -1,0 +1,110 @@
+import torch
+from Utils.data_handling import create_DataLoader, Vocabulary
+from RNN.RNN import RNN, train_rnn
+from LSTM.LSTM import LSTM, train_lstm
+import random
+import numpy as np
+import os
+
+
+
+
+
+
+
+def performExperimentRNN():
+    # ================ Hyper-parameters ================ #
+    seq_length = 50 # Length of sequence fed into network
+    dim_hidden = 256 # Dimension of hidden nodes
+    activation_func = 'tanh' # Activation function ('tanh' or 'relu')
+    n_layers = 2 # Number of layers in (stacked) RNN
+    dropout = 0.15 # Determines dropout rate
+    persistent_hidden_state = True # Stays fixed for all experiments
+    stride = seq_length # Stays fixed for all experiments
+    traverse = 'once' # Stays fixed for all experimentsAs recommended in data_handling documentation
+    embedding_type = 'one-hot'
+    embedding_dim = None # Is fixed through embedding type later, will play a role if we train embedding layer OR use prettrained embeddings
+    tokenization_level = 'char' # could alternatively be 'word'
+    tokenization_type = None # if level = 'word' => choose that to be 'nltk_shakespeare' (or later BPE)
+    learning_rate = 0.001 
+    learning_rate_decay = 'cosine'
+    batch_size = 10 # TODO: TO BE DETERMINED
+    lam = 0 # L2-Regularization parameter
+    shuffle = True # Shuffle data between epochs (always true for us)
+    optimizer_algo = 'ADAM'
+    
+    save = False # Save or not save the model 
+
+    # ====================== Data ===================== #
+    current_dir = os.getcwd()
+    print(f"You are in: {current_dir}")
+    training_file = os.path.join(current_dir, 'Data', 'train_shakespeare_full_corpus.txt')
+    training_file = os.path.abspath(training_file)  # resolves to full path
+
+    val_file = os.path.join(current_dir, 'Data', 'val_shakespeare_full_corpus.txt')
+    val_file = os.path.abspath(training_file)  # resolves to full path
+
+    test_file = os.path.join(current_dir, 'Data', 'test_shakespeare_full_corpus.txt')
+    test_file = os.path.abspath(training_file)  # resolves to full path
+
+    # ==================== RANDOM FIXING ==================== #
+    # Reproducibility
+    # Read a bit more here -- https://pytorch.org/docs/stable/notes/randomness.html
+    random.seed(5719)
+    np.random.seed(5719)
+    torch.manual_seed(5719)
+    #torch.use_deterministic_algorithms(True)
+
+
+    # ==================== DATA PREP ==================== #
+    if persistent_hidden_state:
+        advanced_batching = True
+    else:
+        advanced_batching = False
+
+    train_dataloader, dataset, vocab = create_DataLoader(filename=training_file, batch_size=batch_size, 
+                      seq_Length=seq_length, shuffle=shuffle, stride=stride,
+                      level=tokenization_level,tokenization=tokenization_type,
+                      vocab=None,record_tokens=True,advanced_batching=advanced_batching,boundaries=None, 
+                      traverse='once')
+    
+    # Note if it works correctly the dataset will contain the correct hidden states 
+    # for each play in each epoch. The play id is its index in data.samples
+
+    # Prepare the hidden states:
+    if persistent_hidden_state:
+        hidden_states = torch.zeros(dataset.n_plays,n_layers,dim_hidden) # size: (n_plays, n_layers, hidden_dim)
+    
+    # Extract vocabulary size:
+    vocab_size = vocab.vocab_size
+
+    # Create embedding if needed
+    if embedding_type == 'one-hot':
+        # Create one_hot embedding
+        embedding = torch.eye(vocab_size)
+    elif embedding_type == 'GloVe':
+        # TODO: LOAD GLOVE EMBEDDINGS
+        embedding = torch.zeros((vocab_size, embedding_dim))
+        raise NotImplementedError('GloVe Embeddings are missing so far')
+    else:
+        raise NotImplementedError('Invalid embedding_type given')
+    
+    
+
+
+    # ==================== TRAINING ==================== #
+    model = RNN()
+
+    # Create optimizer
+    if optimizer_algo == 'ADAM':
+        torch.optim.Adam()
+    elif optimizer_algo == 'SGD':
+        torch.optim.SGD()
+
+    # ==================== EVALUATION ==================== #
+    
+
+
+
+if __name__== '__main__':
+    performExperimentRNN()
