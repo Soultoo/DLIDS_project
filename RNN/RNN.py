@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from torch.utils.tensorboard import SummaryWriter
 import os
 
 class RNN(nn.Module):
@@ -48,10 +49,9 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', 
     # - possibility to add learning rate schedule
     # - The model checkpoints being saved every epoch
 
+    # Create directories and set up logging with tensorboard
     os.makedirs(checkpoint_dir, exist_ok=True)
-
-    model.to(device)
-    criterion = nn.CrossEntropyLoss()
+    writer = SummaryWriter(log_dir='./runs/my_experiment')
 
     # Create history dicts to visualize the loss curves later
     history = {
@@ -66,6 +66,8 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', 
     with open(log_file, 'w') as f:
         f.write('epoch,train_loss,val_loss\n')
 
+    model.to(device)
+    criterion = nn.CrossEntropyLoss()
 
     global_step = 0  # Collect update steps over all epochs for logging
     for epoch in range(num_epochs):
@@ -77,7 +79,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', 
         total_samples = 0 # Used to average the total_loss above
 
         for i, (inputs, targets) in enumerate(dataloader_train):
-            global_step += 1
+            
             batch_size = inputs.size(0)
             inputs, targets = inputs.to(device), targets.to(device) # input: (n_batch, seq_length), (n_batch, seq_length) 
 
@@ -89,7 +91,25 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', 
             loss = criterion(logits.reshape(-1, logits.shape[2]), targets.reshape(-1,))
 
             loss.backward()
+
+            # Log gradient size for stability analysis
+            for name, param in model.named_parameters():
+                if param.grad is not None:
+                    writer.add_histogram(f'gradients/{name}', param.grad, global_step)
+
+            total_norm = 0
+            for param in model.parameters():
+                if param.grad is not None:
+                    param_norm = param.grad.data.norm(2)
+                    total_norm += param_norm.item() ** 2
+            total_norm = total_norm ** 0.5
+            writer.add_scalar('gradients/grad_norm', total_norm, global_step)
+
             optimizer.step()
+            
+            # Log learning rate too
+            for i, param_group in enumerate(optimizer.param_groups):
+                writer.add_scalar(f'learning_rate/group_{i}', param_group['lr'], global_step)
 
             loss_item = loss.item()
             running_loss += loss_item  # This 
@@ -118,6 +138,8 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', 
                 train_loss_avg = total_loss / total_samples
                 
                 # Save print and log losses
+                writer.add_scalar('Loss/train', train_loss_avg, global_step)
+                writer.add_scalar('Loss/val', val_loss_avg, global_step)
                 history['train_loss'].append((global_step, train_loss_avg))
                 history['val_loss'].append((global_step, val_loss_avg))
 
@@ -128,6 +150,8 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', 
 
                 # Put model back into train mode 
                 model.train()
+            # Increment the step count
+            global_step += 1
 
         # Full-epoch validation at the end of each epoch
         model.eval()
@@ -146,6 +170,9 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', 
         val_loss_avg = val_loss_total / val_samples
         train_loss_avg = total_loss / total_samples
 
+        # Save print and log losses
+        writer.add_scalar('Loss/train', train_loss_avg, global_step + 0.01) # + 0.01 as to avoid double writing for the same update step between online and after epoch validation
+        writer.add_scalar('Loss/val', val_loss_avg, global_step + 0.01)
         history['train_loss'].append((global_step, train_loss_avg))
         history['val_loss'].append((global_step, val_loss_avg))
 
@@ -167,6 +194,8 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', 
 
 
     print("Training finished.")
+    # Close writer
+    writer.close()
     return history
 
 
