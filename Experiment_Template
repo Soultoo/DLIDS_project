@@ -17,31 +17,33 @@ def performExperimentRNN():
     #--- Fixed Hyperparameters --- # 
     seq_length = 50 # Length of sequence fed into network
     dim_hidden = 256 # Dimension of hidden nodes
-    activation_func = 'tanh' # Activation function ('tanh' or 'relu')
+    activation_func = 'tanh' # Activation function (stays fixed for all experiments) ('tanh' or 'relu')
     n_layers = 2 # Number of layers in (stacked) RNN
-    dropout = 0.15 # Determines dropout rate
+    dropout = 0.15 # Determines dropout rate (might become nuisance parameter later)
     persistent_hidden_state = True # Stays fixed for all experiments
     stride = seq_length # Stays fixed for all experiments
-    traverse = 'once' # Stays fixed for all experimentsAs recommended in data_handling documentation
-    embedding_type = 'one-hot'
+    traverse = 'once' # Stays fixed for all experiments, as recommended in data_handling documentation
+    embedding_type = 'one-hot' # or 'GloVe'
     embedding_dim = None # Is fixed through embedding type later, will play a role if we train embedding layer OR use prettrained embeddings
-    tokenization_level = 'char' # could alternatively be 'word'
+    tokenization_level = 'char' # could alternatively be 'word' (only applicable for 2nd experiment)
     tokenization_type = None # if level = 'word' => choose that to be 'nltk_shakespeare' (or later BPE)
-    learning_rate = 0.001 
+    
     learning_rate_decay = 'cosine'
-    batch_size = 10 # TODO: TO BE DETERMINED
-    lam = 0 # L2-Regularization parameter
+
+    batch_size = 20 # Works relatively well with the shakespeare data, default buckets and stride = seq_length
+    lam = 0 # L2-Regularization parameter (is always going to be 0)
     shuffle = True # Shuffle data between epochs (always true for us)
-    optimizer_algo = 'ADAM'
+    optimizer_algo = 'ADAM' # TODO: TEST THAT AGAINST SGD
     
     #--- Scientific Parameters---#
 
 
     #--- Nuisance parameters ---#
-
+    learning_rate = 0.001 
 
     #--- other paratemers ---#
     save = False # Save or not save the model 
+    n_epochs = 5 # Is fixed over all experiments
 
     # ====================== Data ===================== #
     current_dir = os.getcwd()
@@ -86,10 +88,11 @@ def performExperimentRNN():
     # Extract vocabulary size:
     vocab_size = vocab.vocab_size
 
-    # Create embedding if needed
+    # Create embedding
     if embedding_type == 'one-hot':
         # Create one_hot embedding
         embedding = torch.eye(vocab_size)
+        embedding_dim = vocab_size
     elif embedding_type == 'GloVe':
         # TODO: LOAD GLOVE EMBEDDINGS
         embedding = torch.zeros((vocab_size, embedding_dim))
@@ -101,7 +104,16 @@ def performExperimentRNN():
 
 
     # ==================== TRAINING ==================== #
-    model = RNN()
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print("Running on", device)
+
+    model = RNN(vocab_size=vocab_size, embedding_dim=embedding_dim, 
+                hidden_size=dim_hidden, output_size=vocab_size, num_layers=n_layers, 
+                activation_function=activation_func, dropout=dropout, 
+                use_pretrained_embedding=True, pretrained_weights=embedding)
+    
+    # model.to(device) # NOT NEEDED is done in train_rnn
+    train_rnn(model, dataloader, optimizer, device=device, num_epochs=n_epochs, print_every=100)
 
     # Create optimizer
     if optimizer_algo == 'ADAM':
