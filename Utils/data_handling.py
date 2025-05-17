@@ -73,22 +73,28 @@ class Vocabulary():
         self.token2id = {}
         self.id2token = []
 
+        self.vocab_size = 0
+
         # The padding symbol will be used to ensure that all tensors in a batch
         # have equal length. (i.e. the padding symbol is only used if a sample is not long enough 
         # (mostly for advanced batching where padding gets added before the ENDTOKEN of each play))
         self.token2id[PADDING_SYMBOL] = len(self.id2token)
         self.id2token.append(PADDING_SYMBOL)
+        self.vocab_size += 1
 
         self.token2id[ENDTOKEN] = 1
         self.id2token.append(ENDTOKEN)
+        self.vocab_size += 1
 
         for markerToken in SECTION_MARKER:
             self.token2id[markerToken] = len(self.id2token)
             self.id2token.append(markerToken)
+            self.vocab_size += 1
         
         # Also add the token that describes that a token (in the validation and test sets) is not in the vocabulary
         self.token2id[UNKNOWN_SYMBOL] = len(self.id2token)
         self.id2token.append(UNKNOWN_SYMBOL)
+        self.vocab_size += 1
 
         
 
@@ -99,6 +105,7 @@ class Vocabulary():
             token_id = len(self.id2token)
             self.token2id[token] = token_id
             self.id2token.append(token)
+            self.vocab_size += 1
         
         return self.token2id[token]
     
@@ -116,6 +123,15 @@ class Vocabulary():
             return self.id2token[id]
         else:
             return UNKNOWN_SYMBOL
+        
+    def transform_ID_2_String(self, id_list):
+        '''Transforms a list of ids back into its original string using the vocabulary seen here'''
+        text_list = []
+        for id in id_list:
+            text_list.append(self.lookup_token(id))
+        
+        text = "".join(text_list)
+        return text
 
 
 # Create custom dataclass
