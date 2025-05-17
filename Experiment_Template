@@ -14,6 +14,7 @@ import os
 
 def performExperimentRNN():
     # ================ Hyper-parameters ================ #
+    #--- Fixed Hyperparameters --- # 
     seq_length = 50 # Length of sequence fed into network
     dim_hidden = 256 # Dimension of hidden nodes
     activation_func = 'tanh' # Activation function ('tanh' or 'relu')
@@ -33,6 +34,13 @@ def performExperimentRNN():
     shuffle = True # Shuffle data between epochs (always true for us)
     optimizer_algo = 'ADAM'
     
+    #--- Scientific Parameters---#
+
+
+    #--- Nuisance parameters ---#
+
+
+    #--- other paratemers ---#
     save = False # Save or not save the model 
 
     # ====================== Data ===================== #

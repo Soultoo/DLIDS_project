@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 
 class RNN(nn.Module):
-    def __init__(self, vocab_size, embedding_dim, hidden_size, output_size, num_layers=1, dropout=0.0, use_pretrained_embedding=False, pretrained_weights=None):
+    def __init__(self, vocab_size, embedding_dim, hidden_size, output_size, num_layers=1, activation_function='tanh', dropout=0.0, use_pretrained_embedding=False, pretrained_weights=None):
         super().__init__()
 
         if use_pretrained_embedding:
@@ -15,7 +15,7 @@ class RNN(nn.Module):
         else:
             self.embedding = nn.Embedding(vocab_size, embedding_dim)
 
-        self.rnn = nn.RNN(embedding_dim, hidden_size, num_layers, batch_first=True, dropout=dropout)
+        self.rnn = nn.RNN(embedding_dim, hidden_size, num_layers, nonlinearity=activation_function, batch_first=True, dropout=dropout)
         self.fc = nn.Linear(hidden_size, output_size)
 
     def forward(self, x, hidden=None):
@@ -27,6 +27,11 @@ class RNN(nn.Module):
 
 
 def train_rnn(model, dataloader, optimizer, device='cpu', num_epochs=10, print_every=100):
+    # TODO: STUFF THAT IS MISSING:
+    # - Way to log models training and evaluation loss over the times (maybe txt file but at least some form of data structure for later plotting)
+    # - General integration of evaluation dataset
+    # - possibility to add learning rate schedule
+    # 
     model.to(device)
     model.train()
     criterion = nn.CrossEntropyLoss()
