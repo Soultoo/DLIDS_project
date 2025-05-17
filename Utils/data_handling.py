@@ -24,6 +24,12 @@ UNKNOWN_SYMBOL = "<<UNK>>"
 # Max number of words to be predicted if <END> symbol is not reached
 MAX_PREDICTIONS = 20
 
+# Set the boundaries for the buckets. These are my best guess estimates of what could be good buckets
+# Basically you get 2 Buckets, one for Sonnets and one for plays
+# With these buckets I would recommend the 'once' traverse strategy. 
+# For a 'balanced strategy I woud set CHAR_BUCKETS = (2500, 200000)
+WORD_BUCKETS = (200, 50000)
+CHAR_BUCKETS = (2000, 200000)
 
 class ShakespeareTokenizer:
     '''Custom tokenizer. I built it because nltk.word_tokenizer() excludes newline
@@ -140,6 +146,11 @@ class ShakespeareDataset(Dataset):
         self.record_tokens = record_tokens
         self.advanced_batching = advanced_batching
         self.stride = stride
+        
+
+        # This will save the IDs that are used in the batch (for advanced indexing)
+        # Its going to be empty if advanced batchin is disabled as we do not differentiate between plays
+        self.batch_play_ids = []
 
         # Set tokenization tpye
         # Word level embedding
@@ -432,6 +443,9 @@ class BucketedPlaySampler(torch.utils.data.Sampler):
         # Create batch-wise iterator
         for i in range(0, len(batch), self.batch_size):
             b = batch[i:i + self.batch_size]
+            # TRICK (THIS IS NOT NICE CODING, but as a shortcut works haha.
+            # Write the information which play_ids have been chosen back to the dataset
+            dataset.batch_play_ids = b
             if len(b) < self.batch_size and self.drop_last:
                 continue
             yield b
@@ -465,9 +479,9 @@ class UnifiedBucketLoader:
         
 
         if bucket_weights is None:
-            self.weights = [1.0] * len(self.bucket_ids)
+            self.bucket_weights = [1.0] * len(self.bucket_ids)
         else:
-            self.weights = [bucket_weights.get(bid, 0.0) for bid in self.bucket_ids]
+            self.bucket_weights = [bucket_weights.get(bid, 0.0) for bid in self.bucket_ids]
 
     # Implement __iter__ method so that we can use it as a "normal" data loader
     # __iter__ gets called internally when we init a loop with for x in Y
@@ -590,9 +604,12 @@ def create_DataLoader(filename, batch_size, seq_Length, shuffle=True, stride=1, 
     else:
         # With adavanced batching we have to put in a bit more work...
         # 1. Create the buckets of the play
-        if buckets == None: # Create the boundaries based on my own experimenting 
+        if boundaries is None: # Create the boundaries based on my own experimenting 
         # Step 1: Create buckets
-            boundaries = [50, 150] # Divide into short and long plays
+            if level == 'word':
+                boundaries = [*WORD_BUCKETS] # Transform it from a tuple into a list
+            else:
+                boundaries = [*CHAR_BUCKETS] # Divide into short and long plays
         buckets = create_play_buckets(dataset, boundaries)
 
         # 2. Compute bucket weights by total sample volume, i.e. buckets that have more samples in them get chosen more often
@@ -645,7 +662,7 @@ def create_DataLoader(filename, batch_size, seq_Length, shuffle=True, stride=1, 
 if __name__ == '__main__':
     dataloader, dataset, vocab = create_DataLoader('Data/train_shakespeare_full_corpus.txt', batch_size=10, seq_Length=20,shuffle=True, 
                       stride=1, level='char', tokenization='nltk_shakespeare', record_tokens=True, 
-                      advanced_batching=False)
+                      advanced_batching=True, traverse='once')
     
     # Just print the first 10 samples
     for epoch in range(3):
@@ -654,4 +671,6 @@ if __name__ == '__main__':
             if i <= 3:
                 print(x)
                 print(y)
+            else:
+                break
     
