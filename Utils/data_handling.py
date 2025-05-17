@@ -9,7 +9,10 @@ from collections import defaultdict
 
 
 # Import global variables
-from shakespeare_parser import ENDTOKEN, SECTION_MARKER
+from Utils.shakespeare_parser import ENDTOKEN, SECTION_MARKER
+
+# For debugging comment line above out and put instead:
+# from shakespeare_parser import ENDTOKEN, SECTION_MARKER
 
 
 ## Define globale variables
@@ -164,6 +167,7 @@ class ShakespeareDataset(Dataset):
             elif tokenization == 'nltk_shakespeare':
                 self.tokenize = ShakespeareTokenizer().tokenize
             elif tokenization == 'BPE':
+                # TODO
                 raise NotImplementedError("Advanced batching not implemented yet.")
                 
 
@@ -576,14 +580,15 @@ def create_DataLoader(filename, batch_size, seq_Length, shuffle=True, stride=1, 
             reduce the ability to split the plays into buckets where each bucket holds plays of similar length. Consequently the buckets
             have to be larger, which means that shorter plays are going to be oversampled a lot (might introduce bias into the data)
             Thus, with advanced batching, choose a adequate batch_size. Experimenting with it has shown that a batch size of 
-            XXX seems to work well with the shakespeare cropus, if XXX buckets are used. \\
+            20 seems to work well with the shakespeare cropus, if DEFAULT buckets are used. \\
         boundaries: These are the upper boundaries to determine which play goes into which bucket for sampling. If None is given, the standard
             boundaries found by experimenting with the dataset are used (tbh I would just keep them that way... its only if you want to experiment
             with the batch size where you have to maybe edit the boundaries to allow bigger buckets) \\
         traverse: (str) ['once', 'balanced', 'partial']: If set to 'once' each play gets traversed exaclty once per epoch. 
             If set to balanced, plays are repeated as often as they fit into the largest play in the same bucket.
             If set to partial, plays within the same bucket are repeated until the biggest play in the bucket is traversed once,
-            i.e. shorter plays do not have to end, they are likely to end in the middle of the play
+            i.e. shorter plays do not have to end, they are likely to end in the middle of the play.
+            If boundaries are set to None (== Default buckets) I recommend setting traverse to 'once'
         '''
 
     # If no vocabulary was given instantiate a new one
