@@ -10,6 +10,18 @@ wandb_log = False # override via command line if you like
 wandb_project = 'train_nanogpt_shakespeare'
 wandb_run_name = 'baseline_GPT_model'
 
+# --------- #tag *Our data loader* ---------
+stride = 1
+level = 'char'
+tokenization = 'nltk_shakespeare'
+traverse = 'once'
+embedding_dim = None  # Will be set based on vocabulary size
+emb_dim_is_token_dim = True
+
+# File paths
+train_file = 'Data/train_shakespeare_full_corpus.txt'
+val_file = 'Data/val_shakespeare_full_corpus.txt'
+
 dataset = 'train_nanogpt_shakespeare'
 gradient_accumulation_steps = 1
 batch_size = 64
