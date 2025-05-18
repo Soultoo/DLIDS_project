@@ -4,7 +4,7 @@ from torch.utils.tensorboard import SummaryWriter
 import os
 
 class RNN(nn.Module):
-    def __init__(self, vocab_size, embedding_dim, hidden_size, output_size, num_layers=1, activation_function='tanh', dropout=0.0, use_pretrained_embedding=False, pretrained_weights=None, persistent_hidden_state=False):
+    def __init__(self, vocab_size, embedding_dim, hidden_size, output_size, num_layers=1, activation_function='tanh', dropout_rate=0.0, use_pretrained_embedding=False, pretrained_weights=None, persistent_hidden_state=False):
         super().__init__()
 
         self.vocab_size = vocab_size
@@ -12,7 +12,7 @@ class RNN(nn.Module):
         self.hidden_dim = hidden_size
         self.output_dim = output_size
         self.n_layers_RNN = num_layers
-        self.dropout_rate = dropout
+        self.dropout_rate = dropout_rate
         self.persistent_hidden_state = persistent_hidden_state
 
         if use_pretrained_embedding:
@@ -22,27 +22,87 @@ class RNN(nn.Module):
         else:
             self.embedding = nn.Embedding(vocab_size, embedding_dim)
 
-        self.rnn = nn.RNN(embedding_dim, hidden_size, num_layers, nonlinearity=activation_function, batch_first=True, dropout=dropout)
+        # The reason for why i split this here instead of just using one rnn with the num_layers attribute set to n_layers_RNN is because
+        # with a persistent hidden state I need access to the hidden vectors of all layers of the whole sequence!!
+        if self.persistent_hidden_state:
+            self.rnn1 = nn.RNN(embedding_dim, hidden_size, num_layers=1, nonlinearity=activation_function, batch_first=True, dropout=dropout_rate)
+            # Add dropuut layer manually
+            self.dropout = nn.Dropout(dropout_rate)
+            self.rnn_subsequent = nn.RNN(hidden_size, hidden_size, num_layers=1, nonlinearity=activation_function, batch_first=True, dropout=dropout_rate)
+        else: 
+            self.rnn = nn.RNN(embedding_dim, hidden_size, num_layers, nonlinearity=activation_function, batch_first=True, dropout=dropout_rate)
+        
         self.fc = nn.Linear(hidden_size, output_size)
 
-    def forward(self, X, hidden=None):
+    def forward(self, X, hidden_states=None, hidden_pos = -1):
         '''Implements the forward pass of the model
         Inputs:
             x: (tensor) size (n_batch, seq_length) containing integers indeces corresponding to tokens
-            hidden: (tensor) size: (n_layers, n_batch, hidden_dim)'''
+            hidden: (tensor) size: (n_layers, n_batch, hidden_dim)
+            hidden_pos: (int) determines the hidden state that should be returned to the user, 
+                needed to allow persistent hidden states with a stride < seq_length. Per default give the 
+                last hidden state of the network over all layers, as needed for stride == seq_length
+                size (n_layers, n_batch, hidden_dim):'''
+        
+        n_batch = X.shape[0]
         #Apply emebding
         X = self.embedding(X) # dim: (n_batch, seq_length, embedding_dim)
 
-        output, hidden = self.rnn(X, hidden) # output: (n_batch, seq_length, hidden_dim) , hidden: (n_layers, n_batch, hidden_dim)
-        logits = self.fc(output)  # (n_batch, seq_length, vocab_size)
-        return logits, hidden, output 
+        if self.persistent_hidden_state:
+            hout_list = []
+            hidden_states1 = hidden_states[0].unsqueeze(0) # dim (1,n_batch, hidden_dim)
+            output, _ = self.rnn1(X, hidden_states1) #  output: (n_batch, seq_length, hidden_dim) , hidden: (1, n_batch, hidden_dim)
+            hout1 = output[:,hidden_pos,:] # dim: (n_batch,hidden_dim)
+            hout1 = hout1.unsqueeze(0) # dim (1, n_batch, hidden_dim)
+            hout_list.append(hout1)
+    
+            for layer in range(1,self.n_layers_RNN):
+                # Retrieve hidden states for that layer
+                hidden_temp = hidden_states[layer].unsqueeze(0) # # dim (1,n_batch, hidden_dim)
+                # Apply dropout 
+                output_temp = self.dropout(output) # dim (n_batch, seq_length, hidden_dim)
+                # Apply RNN
+                output_temp, hidden_temp = self.rnn_subsequent(output_temp, hidden_temp) # output: (n_batch, seq_length, hidden_dim) , hidden: (n_layers, n_batch, hidden_dim)
+                hout_temp = output_temp[:,hidden_pos,:] # dim: (n_batch,hidden_dim)
+                hout_temp = hout_temp.unsqueeze(0) # dim (1, n_batch, hidden_dim)
+                hout_list.append(hout_temp)
+            
+            logits = self.fc(output)  # # (n_batch, seq_length, vocab_size)
+            hidden_out = torch.cat(hout_list, dim=0)  # shape: (n_layers, n_batch, hidden_dim)
+            return logits, hidden_out, output_temp # # (n_batch, seq_length, vocab_size), (n_layers, n_batch, hidden_dim), (n_batch, seq_length, hidden_dim)
+        else:
+            output, hidden = self.rnn(X) # output: (n_batch, seq_length, hidden_dim) , hidden: (n_layers, n_batch, hidden_dim)
+            logits = self.fc(output)  # (n_batch, seq_length, vocab_size)
+            return logits, hidden, output 
 
 
 
 
-def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', num_epochs=10, 
+def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hidden_state = True, hidden_state = None, hidden_state_val = None, device='cpu', num_epochs=10, 
               print_every=100, val_every_n_steps=500, scheduler=None, experiment_dir = './Baseline_RNN', 
               log_file='training_log.txt', trial=1, resume_training_epoch=0, resume_checkpoint_file=None):
+
+    ###--- Read out data and pepare data structures for logging -- ###
+    # Little sanity checks, i.e. if we use a persistent hidden state the dataset 
+    # accross the buckets must be the same and we extract information from them and read out data
+    if persistent_hidden_state:
+        # Move hidden_state to appropriate device
+        hidden_state.to(device)
+        hidden_state_val.to(device)
+        same_dataset = True
+        # Set the first dataset as the reference dataset
+        original_dataset = dataloader_train.bucket_loaders[0].dataset
+        for loader_dataset in dataloader_train.bucketloaders.values():
+            if loader_dataset is not original_dataset:
+                same_dataset = False
+                break
+        # Good read out the values needed to for a persistent hidden state
+        if same_dataset:
+            hidden_pos = original_dataset.stride
+        else:
+            raise ValueError("You must specify a dataloader, which has the same dataset for all buckets if you use a persistent hidden state. You most likely have attempeted to use UnifiedBucketLoader, BucketedSampler or any other internal Bucket function explicitly. Use create_dataset with persistent_hidden_state set to true instead.")
+    if persistent_hidden_state and (hidden_state is None or hidden_state_val):
+        raise ValueError("You must specify a hidden_state tensor size (n_plays, n_layers, hidden_dim) if you want to use a persistent hidden state ")
 
     # Create directories needed for logging
     checkpoint_dir = os.path.join(experiment_dir, 'chekpoints', f'trial{trial}')
@@ -62,9 +122,12 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', 
     history = {
         'train_loss': [], # List of (step, loss)
         'val_loss': [], # List of (step, loss)
+        'train_acc':[], # List of (step, accuracy)
+        'val_acc': [], # List of (step, accuracy)
 
     }
 
+    ###---- Checkpoint logic ----###
     # Load checkpoint if resuming
     if resume_training_epoch > 0 and resume_checkpoint_file is not None and os.path.exists(resume_checkpoint_file):
         # Load checkpoint, which contains all the information needed
@@ -95,11 +158,10 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', 
                         new_lines.append(line + '\n')
         with open(log_file_path, 'w') as f:
             f.writelines(new_lines)
-    
-
-    # Load logging file manually (and purge update steps if resumting)
-    with open(log_file_path, 'w') as f:
-        f.write('epoch,global_step,train_loss,val_loss\n')
+    else:
+        # Create logging file manually
+        with open(log_file_path, 'w') as f:
+            f.write('epoch,global_step,train_loss,val_loss,train_acc,val_acc\n')
 
     # Create tensorboard with optional purging for resuming the model
     if resume_training_epoch > 0:
@@ -110,7 +172,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', 
     
 
     
-
+    ###--- Start real training ----###
     model.to(device)
     criterion = nn.CrossEntropyLoss()
 
@@ -129,7 +191,22 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', 
             inputs, targets = inputs.to(device), targets.to(device) # input: (n_batch, seq_length), (n_batch, seq_length) 
 
             optimizer.zero_grad()
-            logits, _, _= model(inputs) # logits: (n_batch, seq_length, vocab_size)
+            if persistent_hidden_state:
+                batch_play_ids = original_dataset.batch_play_ids
+                # Convert to tensor and move to accurate device
+                batch_play_ids = torch.tensor(batch_play_ids, device=hidden_state.device)
+                batch_hidden_state = hidden_state[batch_play_ids] # dim: (n_batch, n_layers, hidden_dim)
+                # Reshape to correct shape of (n_layers, n_batch, hidden_dim)
+                batch_hidden_state = batch_hidden_state.permute(1,0,2).contiguous() # dim: (n_layers, n_batch, hidden_dim)
+                # logits: (n_batch, seq_length, vocab_size),hidden: (n_layers, n_batch, hidden_dim), output: (n_batch, seq_length, hidden_dim)
+                logits, hidden, output= model(inputs, batch_hidden_state, hidden_pos) 
+                # Update the hidden_state vector
+                hidden_state[batch_play_ids] = hidden.detach().permute(1, 0, 2) # Make sure that hidden does not carry any gradients to save it => Use detach
+                
+            else:
+                logits, _, _= model(inputs) # logits: (n_batch, seq_length, vocab_size), output: (n_batch, seq_length, hidden_dim) , hidden: (n_layers, n_batch, hidden_dim)
+
+            
             # You need to flatten the arrays  
             # logits: (n_batch, seq_length, vocab_size) -> (n_batch*seq_length, vocab_size)
             # targets: (n_batch, seq_length) -> (n_batch*seq_length)
@@ -156,13 +233,17 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', 
             for i, param_group in enumerate(optimizer.param_groups):
                 writer.add_scalar(f'learning_rate/group_{i}', param_group['lr'], global_step)
 
+            # Calculate and log loss for that batch
             loss_item = loss.item()
             running_loss += loss_item  
             total_loss += loss_item * batch_size
+            # Log accuracy too
+            _, predicted = torch.max(logits, 2) # dim (n_batch. seq_length)
+            total_correct += (predicted == targets).sum().item()
             total_samples += batch_size
 
             if global_step % print_every == 0:
-                print(f"Epoch [{epoch}/{num_epochs}], Step [{global_step}], Training Loss: {running_loss / print_every:.4f}")
+                print(f"Epoch [{epoch}/{num_epochs}], Step [{global_step}], Training Loss: {running_loss / print_every:.4f}, Training Accuracy: {total_correct/total_samples:.4f}")
                 running_loss = 0.0
 
             if global_step % val_every_n_steps == 0:
@@ -173,14 +254,34 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', 
                 with torch.no_grad():
                     for val_inputs, val_targets in dataloader_val:
                         val_inputs, val_targets = val_inputs.to(device), val_targets.to(device)
-                        val_logits, _, _ = model(val_inputs)
+                        if persistent_hidden_state:
+                            batch_play_ids = dataloader_val.dataset.batch_play_ids  # list of play indices in the batch
+                            # Convert to tensor and move to accurate device
+                            batch_play_ids = torch.tensor(batch_play_ids, device=device)
+                            # Extract hidden state for batch
+                            batch_hidden_state = hidden_state_val[batch_play_ids]  # (n_batch, n_layers, hidden_dim)
+                            batch_hidden_state = batch_hidden_state.permute(1, 0, 2).contiguous()  # (layers, batch, hidden_dim)
+
+                            val_logits, hidden, _ = model(val_inputs, batch_hidden_state, hidden_pos=0)
+
+                            # Detach and store back to global val hidden state
+                            hidden_state_val[batch_play_ids] = hidden.detach().permute(1, 0, 2)
+                        else:
+                            val_logits, _, _ = model(val_inputs)
+                        
                         val_loss = criterion(val_logits.reshape(-1, val_logits.shape[2]), val_targets.reshape(-1))
-                        val_loss_total += val_loss.item() * val_inputs.size(0)
-                        val_samples += val_inputs.size(0)
-                # Average over all batch averages as the loss of a batch is done via 1/n_batch sum(loss for samples in batch)
+                        val_loss_total += val_loss.item() * val_inputs.size(0) # un-average the loss
+                        # Log accuracy too
+                        _, val_predicted = torch.max(logits, 2) # dim (n_batch. seq_length)
+                        val_correct += (val_predicted == val_targets).sum().item()
+                        # Collect validation samples
+                        val_samples += val_inputs.size(0) # collect the amount of samples in the batch
+                # Average over all batches as the loss of a batch is done via 1/n_batch sum(loss for samples in batch) and we * n_batch
                 # but you want 1/n_samples *sum(loss of all samples)
                 val_loss_avg = val_loss_total / val_samples
                 train_loss_avg = total_loss / total_samples
+                train_acc_avg = total_correct / total_samples
+                val_acc_avg = val_correct / val_samples
                 
                 # Save print and log losses
                 writer.add_scalar('Loss/train', train_loss_avg, global_step)
@@ -188,10 +289,16 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', 
                 history['train_loss'].append((global_step, train_loss_avg))
                 history['val_loss'].append((global_step, val_loss_avg))
 
-                print(f"[Step {global_step}] Train Loss: {train_loss_avg:.4f} | Online Val Loss: {val_loss_avg:.4f}")
+                # Save print and log accuracy
+                writer.add_scalar('Accuracy/train', train_acc_avg, global_step)
+                writer.add_scalar('Accuracy/val', val_acc_avg, global_step)
+                history['train_acc'].append((global_step, train_acc_avg))
+                history['val_acc'].append((global_step, val_acc_avg))
+
+                print(f"[Step {global_step}] Train Loss: {train_loss_avg:.4f} | Online Val Loss: {val_loss_avg:.4f} | Train Acc: {train_acc_avg:.4f} | Val Acc: {val_acc_avg:.4f}")
 
                 with open(log_file, 'a') as f:
-                    f.write(f"{epoch},{global_step},{train_loss_avg:.6f},{val_loss_avg:.6f}\n")
+                    f.write(f"{epoch},{global_step},{train_loss_avg:.6f},{val_loss_avg:.6f},{train_acc_avg:.6f},{val_acc_avg:.6f}\n")
 
                 # Put model back into train mode 
                 model.train()
@@ -207,13 +314,32 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', 
         with torch.no_grad():
             for val_inputs, val_targets in dataloader_val:
                 val_inputs, val_targets = val_inputs.to(device), val_targets.to(device)
-                val_logits, _, _ = model(val_inputs)
+                if persistent_hidden_state:
+                    batch_play_ids = dataloader_val.dataset.batch_play_ids  # list of play indices in the batch
+                    # Convert to tensor and move to accurate device
+                    batch_play_ids = torch.tensor(batch_play_ids, device=device)
+                    # Extract hidden state for batch
+                    batch_hidden_state = hidden_state_val[batch_play_ids]  # (n_batch, n_layers, hidden_dim)
+                    batch_hidden_state = batch_hidden_state.permute(1, 0, 2).contiguous()  # (layers, batch, hidden_dim)
+
+                    val_logits, hidden, _ = model(val_inputs, batch_hidden_state, hidden_pos=0)
+
+                    # Detach and store back to global val hidden state
+                    hidden_state_val[batch_play_ids] = hidden.detach().permute(1, 0, 2)
+                else:
+                    val_logits, _, _ = model(val_inputs)
                 val_loss = criterion(val_logits.reshape(-1, val_logits.shape[2]), val_targets.reshape(-1))
                 val_loss_total += val_loss.item() * val_inputs.size(0)
+                # Log accuracy too
+                _, val_predicted = torch.max(logits, 2) # dim (n_batch. seq_length)
+                val_correct += (val_predicted == val_targets).sum().item()
+                # Collect validation samples
                 val_samples += val_inputs.size(0)
 
         val_loss_avg = val_loss_total / val_samples
         train_loss_avg = total_loss / total_samples
+        train_acc_avg = total_correct / total_samples
+        val_acc_avg = val_correct / val_samples
 
         # Save print and log losses
         writer.add_scalar('Loss/train', train_loss_avg, global_step + 0.01) # + 0.01 as to avoid double writing for the same update step between online and after epoch validation
@@ -221,10 +347,16 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', 
         history['train_loss'].append((global_step, train_loss_avg))
         history['val_loss'].append((global_step, val_loss_avg))
 
-        with open(log_file, 'a') as f:
-            f.write(f"{epoch},{global_step},{train_loss_avg:.6f},{val_loss_avg:.6f}\n")
+        # Save print and log accuracy
+        writer.add_scalar('Accuracy/train', train_acc_avg, global_step)
+        writer.add_scalar('Accuracy/val', val_acc_avg, global_step)
+        history['train_acc'].append((global_step, train_acc_avg))
+        history['val_acc'].append((global_step, val_acc_avg))
 
-        print(f"[Epoch {epoch}] Train Loss: {train_loss_avg:.4f} | Val Loss: {val_loss_avg:.4f}")
+        with open(log_file, 'a') as f:
+            f.write(f"{epoch},{global_step},{train_loss_avg:.6f},{val_loss_avg:.6f},{train_acc_avg:.6f},{val_acc_avg:.6f}\n")
+
+        print(f"[Epoch {epoch}] Train Loss: {train_loss_avg:.4f} | Val Loss: {val_loss_avg:.4f} | Train Acc: {train_acc_avg:.4f} | Val Acc: {val_acc_avg:.4f}")
 
         # Save models
         # Save full checkpoint
