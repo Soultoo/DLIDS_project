@@ -465,7 +465,7 @@ class BucketedPlaySampler(torch.utils.data.Sampler):
             b = batch[i:i + self.batch_size]
             # TRICK (THIS IS NOT NICE CODING, but as a shortcut works haha.
             # Write the information which play_ids have been chosen back to the dataset
-            dataset.batch_play_ids = b
+            self.dataset.batch_play_ids = b
             if len(b) < self.batch_size and self.drop_last:
                 continue
             yield b
