@@ -1,6 +1,5 @@
 ### Todos
 
-#tag #TODO716 Read about the different hyper-parameters
 #tag #TODOf84 What is cosine similarity
 #tag #TODOe0f And what is BERT score
 #tag #TODO5f5 What is BLEU score
@@ -10,12 +9,15 @@
 
 
 ##### Building GPT model
+#tag #TODO687 Are there differences in initialization?
 
-#tag #TODOf3b Try to implement something similar to model.py in pytorch
-  - Follow this: "class Block(nn.Module):"
-    - Check its calls because everything is in that order (its forward() method)
-#tag #TODOd82 I don't get the @-syntax (Decorators?)
-#tag #TODO248 Copy the generate-method
+##### Arguments for GPT model and training gimmicks
+#tag #TODO195 Will have to adapt to our data loader (data = np.memmap(...))
+
+##### Debugging GPT model
+#tag #TODOb28 Try a run
+#tag #TODOdb0 Enable our loaders
+#tag #TODO3c1 Try loading embeddings
 
 
 
@@ -52,6 +54,8 @@
     - Creates regulraziation because it introduces noise
     - Probability of around 10% acc to GPT? Might not be true tho
     - (Disabled during inference)
+    - In our model and in nanoGPT dropout is applied on output of self attention and on output of MLP. You're supposed to use one dropout per sub-layer, not per "time step"
+      - (Transformers technically don't work with time-steps anyway)
 - #tag #GLOSS143 *Temperature*
   - Temperature between 0 and 1 usually
     - Divide logits (values pre softmax) by temperature
@@ -87,6 +91,11 @@
   - Gelu has a a bit more nonlinearity: Small negative inputs become small negative outputs, but bigger negative values are still zero
     - Appearantly very important for transformer models or deep networks because a lot of info gets annihilated by relu otherwise
     - So performs better, but takes a bit longer to train
+- #tag #GLOSS8c4 *Block size / context window*
+  - The maximum number of tokens we can input to the GPT - also the max number of words we can look back.
+- #tag #GLOSSe87 *Warmup*
+  - Linearly increases LR for set number of its before lowering it with lr decay schedule
+    - We set it to zero - no warmup
 
 
 
