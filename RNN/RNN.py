@@ -41,18 +41,23 @@ class RNN(nn.Module):
 
 
 def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', num_epochs=10, 
-              print_every=100, val_every_n_steps=500, scheduler=None, checkpoint_dir='./checkpoints', 
-              log_file='training_log.txt'):
-    # TODO: STUFF THAT IS MISSING:
-    # - Way to log models training and evaluation loss over the times (maybe txt file but at least some form of data structure for later plotting)
-    # - General integration of evaluation dataset
-    # - possibility to add learning rate schedule
-    # - The model checkpoints being saved every epoch
+              print_every=100, val_every_n_steps=500, scheduler=None, experiment_dir = './Baseline_RNN', 
+              log_file='training_log.txt', trial=1, resume_training_epoch=0, resume_checkpoint_file=None):
 
-    # Create directories and set up logging with tensorboard
+    # Create directories needed for logging
+    checkpoint_dir = os.path.join(experiment_dir, 'chekpoints', f'trial{trial}')
     os.makedirs(checkpoint_dir, exist_ok=True)
-    writer = SummaryWriter(log_dir='./runs/my_experiment')
 
+    # Also log the loss in txt files to use them even after the script has run
+    log_file_dir = os.path.join(experiment_dir, 'log_files')
+    os.makedirs(log_file_dir, exist_ok=True)
+    log_file_path = os.path.join(log_file_dir, log_file)
+
+    tensorboard_dir = os.path.join(experiment_dir, 'runs',f'trail{trial}')
+
+    # Initialize globale values
+    best_val_loss = float('inf')
+    global_step = 0  # Collect update steps over all epochs for logging
     # Create history dicts to visualize the loss curves later
     history = {
         'train_loss': [], # List of (step, loss)
@@ -60,17 +65,57 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', 
 
     }
 
-    best_val_loss = float('inf')
+    # Load checkpoint if resuming
+    if resume_training_epoch > 0 and resume_checkpoint_file is not None and os.path.exists(resume_checkpoint_file):
+        # Load checkpoint, which contains all the information needed
+        checkpoint = torch.load(resume_checkpoint_file, map_location=device)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        if scheduler and 'scheduler_state_dict' in checkpoint and checkpoint['scheduler_state_dict']:
+            scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        history = checkpoint.get('history', history)
+        global_step = checkpoint.get('global_step', 0)
+        best_val_loss = checkpoint.get('best_val_loss', float('inf'))
+        print(f"Resumed training from epoch {resume_training_epoch} and global step {global_step}")
+    elif resume_training_epoch > 0 and (resume_checkpoint_file is None or not os.path.exists(resume_checkpoint_file)):
+        raise FileNotFoundError(f"No checkpoint found at {resume_checkpoint_file}, but you wanted to resume training at epoch {resume_training_epoch}")
+    
 
-    # Also log the loss in txt files to use them even after the script has run
-    with open(log_file, 'w') as f:
-        f.write('epoch,train_loss,val_loss\n')
+    # Reload log file
+    if resume_training_epoch > 0:
+        # Clean log_file.txt of entries beyond the current global_step (by just parsing the lines smaller than global step)
+        new_lines = []
+        with open(log_file_path, 'r') as f:
+            for line in f:
+                if line.startswith("epoch"):  # header
+                    new_lines.append(line)
+                else:
+                    parts = line.strip().split(',')
+                    if len(parts) >= 2 and int(parts[1]) < global_step:
+                        new_lines.append(line + '\n')
+        with open(log_file_path, 'w') as f:
+            f.writelines(new_lines)
+    
+
+    # Load logging file manually (and purge update steps if resumting)
+    with open(log_file_path, 'w') as f:
+        f.write('epoch,global_step,train_loss,val_loss\n')
+
+    # Create tensorboard with optional purging for resuming the model
+    if resume_training_epoch > 0:
+        writer = SummaryWriter(log_dir=tensorboard_dir, purge_step=global_step)
+    else:
+        writer = SummaryWriter(log_dir=tensorboard_dir)
+
+    
+
+    
 
     model.to(device)
     criterion = nn.CrossEntropyLoss()
 
-    global_step = 0  # Collect update steps over all epochs for logging
-    for epoch in range(num_epochs):
+    
+    for epoch in range(resume_training_epoch, num_epochs):
 
         # Put model into training mode at the beginning of each epoch after evaluating after each epoch
         model.train()
@@ -112,7 +157,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', 
                 writer.add_scalar(f'learning_rate/group_{i}', param_group['lr'], global_step)
 
             loss_item = loss.item()
-            running_loss += loss_item  # This 
+            running_loss += loss_item  
             total_loss += loss_item * batch_size
             total_samples += batch_size
 
@@ -143,7 +188,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', 
                 history['train_loss'].append((global_step, train_loss_avg))
                 history['val_loss'].append((global_step, val_loss_avg))
 
-                print(f"[Step {global_step}] Train Loss: {train_loss_avg:.4f} | Inline Val Loss: {val_loss_avg:.4f}")
+                print(f"[Step {global_step}] Train Loss: {train_loss_avg:.4f} | Online Val Loss: {val_loss_avg:.4f}")
 
                 with open(log_file, 'a') as f:
                     f.write(f"{epoch},{global_step},{train_loss_avg:.6f},{val_loss_avg:.6f}\n")
@@ -182,12 +227,24 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, device='cpu', 
         print(f"[Epoch {epoch}] Train Loss: {train_loss_avg:.4f} | Val Loss: {val_loss_avg:.4f}")
 
         # Save models
-        torch.save(model.state_dict(), os.path.join(checkpoint_dir, f"model_epoch_{epoch}.pt"))
-        torch.save(model.state_dict(), os.path.join(checkpoint_dir, "model_latest.pt"))
+        # Save full checkpoint
+        full_state = {
+            'epoch': epoch,
+            'global_step': global_step,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
+            'history': history,
+            'best_val_loss': best_val_loss
+        }
+        
+        torch.save(full_state, os.path.join(checkpoint_dir, f"model_epoch_{epoch}.pt"))
+        torch.save(full_state, os.path.join(checkpoint_dir, "model_latest.pt"))
 
+        # Save best model if applicable
         if val_loss_avg < best_val_loss:
             best_val_loss = val_loss_avg
-            torch.save(model.state_dict(), os.path.join(checkpoint_dir, f"model_best_epoch_{epoch}.pt"))
+            torch.save(full_state, os.path.join(checkpoint_dir, f"model_best_epoch_{epoch}.pt"))
 
         if scheduler is not None:
             scheduler.step()
