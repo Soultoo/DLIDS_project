@@ -78,14 +78,14 @@ class RNN(nn.Module):
 
 
 
-def train_rnn(model, dataloader_train, dataloader_val, optimizer, persisten_hidden_state = True, hidden_state = None, hidden_state_val = None, device='cpu', num_epochs=10, 
+def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hidden_state = True, hidden_state = None, hidden_state_val = None, device='cpu', num_epochs=10, 
               print_every=100, val_every_n_steps=500, scheduler=None, experiment_dir = './Baseline_RNN', 
               log_file='training_log.txt', trial=1, resume_training_epoch=0, resume_checkpoint_file=None):
 
     ###--- Read out data and pepare data structures for logging -- ###
     # Little sanity checks, i.e. if we use a persistent hidden state the dataset 
     # accross the buckets must be the same and we extract information from them and read out data
-    if persisten_hidden_state:
+    if persistent_hidden_state:
         # Move hidden_state to appropriate device
         hidden_state.to(device)
         hidden_state_val.to(device)
@@ -103,7 +103,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persisten_hidd
             hidden_pos = stride
         else:
             raise ValueError("You must specify a dataloader, which has the same dataset for all buckets if you use a persistent hidden state. You most likely have attempeted to use UnifiedBucketLoader, BucketedSampler or any other internal Bucket function explicitly. Use create_dataset with persistent_hidden_state set to true instead.")
-    if persisten_hidden_state and (hidden_state is None or hidden_state_val):
+    if persistent_hidden_state and (hidden_state is None or hidden_state_val):
         raise ValueError("You must specify a hidden_state tensor size (n_plays, n_layers, hidden_dim) if you want to use a persistent hidden state ")
 
     # Create directories needed for logging
@@ -192,7 +192,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persisten_hidd
             inputs, targets = inputs.to(device), targets.to(device) # input: (n_batch, seq_length), (n_batch, seq_length) 
 
             optimizer.zero_grad()
-            if persisten_hidden_state:
+            if persistent_hidden_state:
                 batch_play_ids = original_dataset.batch_play_ids
                 # Convert to tensor and move to accurate device
                 batch_play_ids = torch.tensor(batch_play_ids, device=hidden_state.device)
@@ -251,7 +251,21 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persisten_hidd
                 with torch.no_grad():
                     for val_inputs, val_targets in dataloader_val:
                         val_inputs, val_targets = val_inputs.to(device), val_targets.to(device)
-                        val_logits, _, _ = model(val_inputs)
+                        if persistent_hidden_state:
+                            batch_play_ids = dataloader_val.dataset.batch_play_ids  # list of play indices in the batch
+                            # Convert to tensor and move to accurate device
+                            batch_play_ids = torch.tensor(batch_play_ids, device=device)
+                            # Extract hidden state for batch
+                            batch_hidden_state = hidden_state_val[batch_play_ids]  # (n_batch, n_layers, hidden_dim)
+                            batch_hidden_state = batch_hidden_state.permute(1, 0, 2).contiguous()  # (layers, batch, hidden_dim)
+
+                            val_logits, hidden, _ = model(val_inputs, batch_hidden_state, hidden_pos=0)
+
+                            # Detach and store back to global val hidden state
+                            hidden_state_val[batch_play_ids] = hidden.detach().permute(1, 0, 2)
+                        else:
+                            val_logits, _, _ = model(val_inputs)
+                        
                         val_loss = criterion(val_logits.reshape(-1, val_logits.shape[2]), val_targets.reshape(-1))
                         val_loss_total += val_loss.item() * val_inputs.size(0) # un-average the loss
                         val_samples += val_inputs.size(0) # collect the amount of samples in the batch
@@ -285,7 +299,20 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persisten_hidd
         with torch.no_grad():
             for val_inputs, val_targets in dataloader_val:
                 val_inputs, val_targets = val_inputs.to(device), val_targets.to(device)
-                val_logits, _, _ = model(val_inputs)
+                if persistent_hidden_state:
+                    batch_play_ids = dataloader_val.dataset.batch_play_ids  # list of play indices in the batch
+                    # Convert to tensor and move to accurate device
+                    batch_play_ids = torch.tensor(batch_play_ids, device=device)
+                    # Extract hidden state for batch
+                    batch_hidden_state = hidden_state_val[batch_play_ids]  # (n_batch, n_layers, hidden_dim)
+                    batch_hidden_state = batch_hidden_state.permute(1, 0, 2).contiguous()  # (layers, batch, hidden_dim)
+
+                    val_logits, hidden, _ = model(val_inputs, batch_hidden_state, hidden_pos=0)
+
+                    # Detach and store back to global val hidden state
+                    hidden_state_val[batch_play_ids] = hidden.detach().permute(1, 0, 2)
+                else:
+                    val_logits, _, _ = model(val_inputs)
                 val_loss = criterion(val_logits.reshape(-1, val_logits.shape[2]), val_targets.reshape(-1))
                 val_loss_total += val_loss.item() * val_inputs.size(0)
                 val_samples += val_inputs.size(0)
