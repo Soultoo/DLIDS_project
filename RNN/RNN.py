@@ -98,9 +98,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
                 break
         # Good read out the values needed to for a persistent hidden state
         if same_dataset:
-            stride = original_dataset.stride
-            seq_length = original_dataset.seq_length
-            hidden_pos = stride
+            hidden_pos = original_dataset.stride
         else:
             raise ValueError("You must specify a dataloader, which has the same dataset for all buckets if you use a persistent hidden state. You most likely have attempeted to use UnifiedBucketLoader, BucketedSampler or any other internal Bucket function explicitly. Use create_dataset with persistent_hidden_state set to true instead.")
     if persistent_hidden_state and (hidden_state is None or hidden_state_val):
@@ -124,6 +122,8 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
     history = {
         'train_loss': [], # List of (step, loss)
         'val_loss': [], # List of (step, loss)
+        'train_acc':[], # List of (step, accuracy)
+        'val_acc': [], # List of (step, accuracy)
 
     }
 
@@ -158,11 +158,10 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
                         new_lines.append(line + '\n')
         with open(log_file_path, 'w') as f:
             f.writelines(new_lines)
-    
-
-    # Load logging file manually (and purge update steps if resumting)
-    with open(log_file_path, 'w') as f:
-        f.write('epoch,global_step,train_loss,val_loss\n')
+    else:
+        # Create logging file manually
+        with open(log_file_path, 'w') as f:
+            f.write('epoch,global_step,train_loss,val_loss,train_acc,val_acc\n')
 
     # Create tensorboard with optional purging for resuming the model
     if resume_training_epoch > 0:
@@ -234,13 +233,17 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
             for i, param_group in enumerate(optimizer.param_groups):
                 writer.add_scalar(f'learning_rate/group_{i}', param_group['lr'], global_step)
 
+            # Calculate and log loss for that batch
             loss_item = loss.item()
             running_loss += loss_item  
             total_loss += loss_item * batch_size
+            # Log accuracy too
+            _, predicted = torch.max(logits, 2) # dim (n_batch. seq_length)
+            total_correct += (predicted == targets).sum().item()
             total_samples += batch_size
 
             if global_step % print_every == 0:
-                print(f"Epoch [{epoch}/{num_epochs}], Step [{global_step}], Training Loss: {running_loss / print_every:.4f}")
+                print(f"Epoch [{epoch}/{num_epochs}], Step [{global_step}], Training Loss: {running_loss / print_every:.4f}, Training Accuracy: {total_correct/total_samples:.4f}")
                 running_loss = 0.0
 
             if global_step % val_every_n_steps == 0:
@@ -268,11 +271,17 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
                         
                         val_loss = criterion(val_logits.reshape(-1, val_logits.shape[2]), val_targets.reshape(-1))
                         val_loss_total += val_loss.item() * val_inputs.size(0) # un-average the loss
+                        # Log accuracy too
+                        _, val_predicted = torch.max(logits, 2) # dim (n_batch. seq_length)
+                        val_correct += (val_predicted == val_targets).sum().item()
+                        # Collect validation samples
                         val_samples += val_inputs.size(0) # collect the amount of samples in the batch
                 # Average over all batches as the loss of a batch is done via 1/n_batch sum(loss for samples in batch) and we * n_batch
                 # but you want 1/n_samples *sum(loss of all samples)
                 val_loss_avg = val_loss_total / val_samples
                 train_loss_avg = total_loss / total_samples
+                train_acc_avg = total_correct / total_samples
+                val_acc_avg = val_correct / val_samples
                 
                 # Save print and log losses
                 writer.add_scalar('Loss/train', train_loss_avg, global_step)
@@ -280,10 +289,16 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
                 history['train_loss'].append((global_step, train_loss_avg))
                 history['val_loss'].append((global_step, val_loss_avg))
 
-                print(f"[Step {global_step}] Train Loss: {train_loss_avg:.4f} | Online Val Loss: {val_loss_avg:.4f}")
+                # Save print and log accuracy
+                writer.add_scalar('Accuracy/train', train_acc_avg, global_step)
+                writer.add_scalar('Accuracy/val', val_acc_avg, global_step)
+                history['train_acc'].append((global_step, train_acc_avg))
+                history['val_acc'].append((global_step, val_acc_avg))
+
+                print(f"[Step {global_step}] Train Loss: {train_loss_avg:.4f} | Online Val Loss: {val_loss_avg:.4f} | Train Acc: {train_acc_avg:.4f} | Val Acc: {val_acc_avg:.4f}")
 
                 with open(log_file, 'a') as f:
-                    f.write(f"{epoch},{global_step},{train_loss_avg:.6f},{val_loss_avg:.6f}\n")
+                    f.write(f"{epoch},{global_step},{train_loss_avg:.6f},{val_loss_avg:.6f},{train_acc_avg:.6f},{val_acc_avg:.6f}\n")
 
                 # Put model back into train mode 
                 model.train()
@@ -315,10 +330,16 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
                     val_logits, _, _ = model(val_inputs)
                 val_loss = criterion(val_logits.reshape(-1, val_logits.shape[2]), val_targets.reshape(-1))
                 val_loss_total += val_loss.item() * val_inputs.size(0)
+                # Log accuracy too
+                _, val_predicted = torch.max(logits, 2) # dim (n_batch. seq_length)
+                val_correct += (val_predicted == val_targets).sum().item()
+                # Collect validation samples
                 val_samples += val_inputs.size(0)
 
         val_loss_avg = val_loss_total / val_samples
         train_loss_avg = total_loss / total_samples
+        train_acc_avg = total_correct / total_samples
+        val_acc_avg = val_correct / val_samples
 
         # Save print and log losses
         writer.add_scalar('Loss/train', train_loss_avg, global_step + 0.01) # + 0.01 as to avoid double writing for the same update step between online and after epoch validation
@@ -326,10 +347,16 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
         history['train_loss'].append((global_step, train_loss_avg))
         history['val_loss'].append((global_step, val_loss_avg))
 
-        with open(log_file, 'a') as f:
-            f.write(f"{epoch},{global_step},{train_loss_avg:.6f},{val_loss_avg:.6f}\n")
+        # Save print and log accuracy
+        writer.add_scalar('Accuracy/train', train_acc_avg, global_step)
+        writer.add_scalar('Accuracy/val', val_acc_avg, global_step)
+        history['train_acc'].append((global_step, train_acc_avg))
+        history['val_acc'].append((global_step, val_acc_avg))
 
-        print(f"[Epoch {epoch}] Train Loss: {train_loss_avg:.4f} | Val Loss: {val_loss_avg:.4f}")
+        with open(log_file, 'a') as f:
+            f.write(f"{epoch},{global_step},{train_loss_avg:.6f},{val_loss_avg:.6f},{train_acc_avg:.6f},{val_acc_avg:.6f}\n")
+
+        print(f"[Epoch {epoch}] Train Loss: {train_loss_avg:.4f} | Val Loss: {val_loss_avg:.4f} | Train Acc: {train_acc_avg:.4f} | Val Acc: {val_acc_avg:.4f}")
 
         # Save models
         # Save full checkpoint
