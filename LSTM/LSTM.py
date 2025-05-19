@@ -215,41 +215,33 @@ def generate_text(model, start_str, length, vocab, device='cpu', temperature=1.0
     model.eval()
     model.to(device)
 
-    UNKNOWN_SYMBOL = "<UNK>"
+    # Ensure <UNK> token exists
+    unk_token = "<UNK>"
+    if unk_token not in vocab.token2id:
+        vocab.token2id[unk_token] = len(vocab.token2id)
+        vocab.id2token.append(unk_token)
+    unk_id = vocab.token2id[unk_token]
 
-    if UNKNOWN_SYMBOL not in vocab.token2id:
-        vocab.token2id[UNKNOWN_SYMBOL] = len(vocab.token2id)
-        vocab.id2token.append(UNKNOWN_SYMBOL)
+    # Encode start string
+    input_ids = [vocab.token2id.get(token, unk_id) for token in start_str]
+    generated_ids = input_ids[:]
 
-    input_tokens = [vocab.token2id.get(token, vocab.token2id[UNKNOWN_SYMBOL]) for token in start_str]
-    input_tensor = torch.tensor(input_tokens, dtype=torch.long).unsqueeze(0).to(device)
-
-    input_tensor = torch.clamp(input_tensor, 0, len(vocab.token2id) - 1)
-
-    generated_tokens = input_tokens.copy()
-
+    # Only use the last token as input to speed things up to change later but now for test
+    input_tensor = torch.tensor([[input_ids[-1]]], dtype=torch.long, device=device)
     hidden = None
+
     for _ in range(length):
         with torch.no_grad():
-            try:
-                logits, hidden, _ = model(input_tensor, hidden)
-            except Exception as e:
-                print(f"Error during model forward pass: {e}")
-                print(f"Input tensor shape: {input_tensor.shape}")
-                print(f"Input tensor: {input_tensor}")
-                raise
+            logits, hidden, _ = model(input_tensor, hidden)
 
-        last_token_logits = logits[0, -1, :] / temperature
-        probabilities = torch.softmax(last_token_logits, dim=-1)
-        predicted_token = torch.multinomial(probabilities, num_samples=1).item()
+        # Sample from the logits
+        probs = torch.softmax(logits[0, -1] / temperature, dim=-1)
+        next_id = torch.multinomial(probs, num_samples=1).item()
+        generated_ids.append(next_id)
 
-        predicted_token = min(predicted_token, len(vocab.id2token) - 1)
+        # Next input is the last generated token
+        input_tensor = torch.tensor([[next_id]], dtype=torch.long, device=device)
 
-        generated_tokens.append(predicted_token)
-        input_tensor = torch.cat([input_tensor, torch.tensor([[predicted_token]], dtype=torch.long).to(device)], dim=1)
+    # Decode the token IDs
+    return ''.join(vocab.id2token[i] if i < len(vocab.id2token) else unk_token for i in generated_ids)
 
-        input_tensor = torch.clamp(input_tensor, 0, len(vocab.token2id) - 1)
-
-    generated_text = ''.join([vocab.id2token[token] if token < len(vocab.id2token) else UNKNOWN_SYMBOL for token in generated_tokens])
-
-    return generated_text
