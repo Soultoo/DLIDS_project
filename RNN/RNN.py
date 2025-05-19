@@ -301,7 +301,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
 
                 print(f"[Step {global_step}] Train Loss: {train_loss_avg:.4f} | Online Val Loss: {val_loss_avg:.4f} | Train Acc: {train_acc_avg:.4f} | Val Acc: {val_acc_avg:.4f}")
 
-                with open(log_file, 'a') as f:
+                with open(log_file_path, 'a') as f:
                     f.write(f"{epoch},{global_step},{train_loss_avg:.6f},{val_loss_avg:.6f},{train_acc_avg:.6f},{val_acc_avg:.6f}\n")
 
                 # Put model back into train mode 
@@ -358,7 +358,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
         history['train_acc'].append((global_step, train_acc_avg))
         history['val_acc'].append((global_step, val_acc_avg))
 
-        with open(log_file, 'a') as f:
+        with open(log_file_path, 'a') as f:
             f.write(f"{epoch},{global_step},{train_loss_avg:.6f},{val_loss_avg:.6f},{train_acc_avg:.6f},{val_acc_avg:.6f}\n")
 
         print(f"[Epoch {epoch}] Train Loss: {train_loss_avg:.4f} | Val Loss: {val_loss_avg:.4f} | Train Acc: {train_acc_avg:.4f} | Val Acc: {val_acc_avg:.4f}")
