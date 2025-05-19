@@ -134,7 +134,7 @@ def performExperimentRNN():
     # Create the scheduler
     # Estimate how many update steps there are. NOTE: This is an upper bound as we set drop_last to true, the likely update steps will be shorter
     total_update_steps = n_epochs*train_dataset.n_samples
-    if learning_rate_decay == 'cos-decay':
+    if learning_rate_decay == 'cosine':
         scheduler = CosineAnnealingLR(optimizer, T_max=total_update_steps, eta_min=min_lr)
     elif learning_rate_decay == 'lin-decay':
         raise NotImplementedError('Linear decay is not implemented yet.')
