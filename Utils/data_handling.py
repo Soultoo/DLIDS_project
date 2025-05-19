@@ -1,3 +1,4 @@
+import os
 import torch
 import nltk
 from torch.utils.data import Dataset, DataLoader
@@ -6,6 +7,7 @@ import random
 import math
 import itertools
 from collections import defaultdict
+# from transformers import GPT2Tokenizer
 
 
 # Import global variables
@@ -23,7 +25,8 @@ from Utils.shakespeare_parser import ENDTOKEN, SECTION_MARKER
 # to fill the whole window size
 PADDING_SYMBOL = ' ' # just a whitespace
 UNKNOWN_SYMBOL = "<<UNK>>"
-
+# Collect all special tokens for BPE 
+SPECIAL_TOKENS = [ENDTOKEN, PADDING_SYMBOL, UNKNOWN_SYMBOL] + list(SECTION_MARKER)
 # Max number of words to be predicted if <END> symbol is not reached
 MAX_PREDICTIONS = 20
 
@@ -183,10 +186,20 @@ class ShakespeareDataset(Dataset):
             elif tokenization == 'nltk_shakespeare':
                 self.tokenize = ShakespeareTokenizer().tokenize
             elif tokenization == 'BPE':
-                # TODO
-                raise NotImplementedError("Advanced batching not implemented yet.")
-                
+                # Check if we already created our adapted GPT-2 BPE tokenizer
+                if os.path.isdir("./custom_gpt2_tokenizer"):
+                    tokenizer = GPT2Tokenizer.from_pretrained("./custom_gpt2_tokenizer")
+                else:
+                    # Load pre-trained GPT-2 tokenizer
+                    tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
+                    # Add special tokens
+                    special_tokens_dict = {"additional_special_tokens": SPECIAL_TOKENS}
+                    tokenizer.add_special_tokens(special_tokens_dict)
+
+                    # Save for later use
+                    tokenizer.save_pretrained("./custom_gpt2_tokenizer")
+                raise NotImplementedError("Advanced batching not implemented yet.")
         # Character level embedding
         else:
             self.tokenize = CharTokenizer().tokenize # This as a function will split the string into characters except for the <<...>> markers, they are handled as one character too!!

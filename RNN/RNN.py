@@ -384,6 +384,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
 
     print("Training finished.")
     # Close writer
+    writer.flush()
     writer.close()
     return history
 

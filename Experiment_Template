@@ -122,8 +122,8 @@ def performExperimentRNN():
 
     model = RNN(vocab_size=vocab_size, embedding_dim=embedding_dim, 
                 hidden_size=dim_hidden, output_size=vocab_size, num_layers=n_layers, 
-                activation_function=activation_func, dropout=dropout, 
-                use_pretrained_embedding=True, pretrained_weights=embedding)
+                activation_function=activation_func, dropout_rate=dropout, 
+                use_pretrained_embedding=True, pretrained_weights=embedding, persistent_hidden_state=True)
     
     # Create optimizer
     if optimizer_algo == 'ADAM':
