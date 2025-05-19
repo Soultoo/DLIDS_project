@@ -1,7 +1,8 @@
 import torch
 from Utils.data_handling import create_DataLoader, Vocabulary
 from RNN.RNN import RNN, train_rnn
-from LSTM.LSTM import LSTM, train_lstm
+from LSTM.LSTM import LSTM, train_lstm, generate_text
+from Utils.metrics import compute_bleu_score
 import random
 import numpy as np
 import os
@@ -141,7 +142,7 @@ def performExperimentLSTM():
 
     #--- other paratemers ---#
     save = False # Save or not save the model
-    n_epochs = 5 # Is fixed over all experiments
+    n_epochs = 1 # Is fixed over all experiments
 
     # ====================== Data ===================== #
     current_dir = os.getcwd()
@@ -176,6 +177,12 @@ def performExperimentLSTM():
                       traverse='once')
 
     val_dataloader, _, _ = create_DataLoader(filename=val_file, batch_size=batch_size,
+                      seq_Length=seq_length, shuffle=False, stride=stride,
+                      level=tokenization_level, tokenization=tokenization_type,
+                      vocab=vocab, record_tokens=False, advanced_batching=advanced_batching, boundaries=None,
+                      traverse='once')
+
+    test_dataloader, _, _ = create_DataLoader(filename=test_file, batch_size=batch_size,
                       seq_Length=seq_length, shuffle=False, stride=stride,
                       level=tokenization_level, tokenization=tokenization_type,
                       vocab=vocab, record_tokens=False, advanced_batching=advanced_batching, boundaries=None,
@@ -218,9 +225,31 @@ def performExperimentLSTM():
         optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
 
     # Train the model
-    train_lstm(model, train_dataloader, val_dataloader, optimizer=optimizer, device=device, num_epochs=n_epochs, print_every=100)
+    train_lstm(model, train_dataloader, val_dataloader, optimizer, device=device, num_epochs=n_epochs, print_every=100)
+
+    # ==================== TEXT GENERATION ==================== #
+    # Read the validation data
+    with open(val_file, 'r') as f:
+        validation_data = f.read()
+
+    # Extract a snippet from the validation data
+    snippet = validation_data[:500]  # Extract the first 500 characters as a snippet
+    start_str = ' '.join(snippet.split()[:10])  # Use the first 10 words as the starting string
+    reference = ' '.join(snippet.split()[10:20])  # Use the next 10 words as the reference
+
+    generated_text = generate_text(model, start_str, length=100, vocab=vocab, device=device, temperature=0.7)
+    print(f"Generated Text: {generated_text}")
 
     # ==================== EVALUATION ==================== #
+    # Compute BLEU score
+    hypotheses = [generated_text.split()]  # List of generated sequences
+    references = [[reference.split()]]  # List of lists of ground truth sequences
+    bleu_score = compute_bleu_score(hypotheses, references)
+    print(f"BLEU Score: {bleu_score:.4f}")
+
+if __name__ == '__main__':
+    performExperimentLSTM()
+
 
 if __name__ == '__main__':
     #performExperimentRNN()

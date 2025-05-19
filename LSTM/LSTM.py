@@ -208,3 +208,48 @@ def evaluate_lstm(model, dataloader, device='cpu'):
     accuracy = total_correct / total_samples * 100
     print(f"Eval Loss: {avg_loss:.4f}, Accuracy: {accuracy:.2f}%")
     return avg_loss, accuracy
+
+
+
+def generate_text(model, start_str, length, vocab, device='cpu', temperature=1.0):
+    model.eval()
+    model.to(device)
+
+    UNKNOWN_SYMBOL = "<UNK>"
+
+    if UNKNOWN_SYMBOL not in vocab.token2id:
+        vocab.token2id[UNKNOWN_SYMBOL] = len(vocab.token2id)
+        vocab.id2token.append(UNKNOWN_SYMBOL)
+
+    input_tokens = [vocab.token2id.get(token, vocab.token2id[UNKNOWN_SYMBOL]) for token in start_str]
+    input_tensor = torch.tensor(input_tokens, dtype=torch.long).unsqueeze(0).to(device)
+
+    input_tensor = torch.clamp(input_tensor, 0, len(vocab.token2id) - 1)
+
+    generated_tokens = input_tokens.copy()
+
+    hidden = None
+    for _ in range(length):
+        with torch.no_grad():
+            try:
+                logits, hidden, _ = model(input_tensor, hidden)
+            except Exception as e:
+                print(f"Error during model forward pass: {e}")
+                print(f"Input tensor shape: {input_tensor.shape}")
+                print(f"Input tensor: {input_tensor}")
+                raise
+
+        last_token_logits = logits[0, -1, :] / temperature
+        probabilities = torch.softmax(last_token_logits, dim=-1)
+        predicted_token = torch.multinomial(probabilities, num_samples=1).item()
+
+        predicted_token = min(predicted_token, len(vocab.id2token) - 1)
+
+        generated_tokens.append(predicted_token)
+        input_tensor = torch.cat([input_tensor, torch.tensor([[predicted_token]], dtype=torch.long).to(device)], dim=1)
+
+        input_tensor = torch.clamp(input_tensor, 0, len(vocab.token2id) - 1)
+
+    generated_text = ''.join([vocab.id2token[token] if token < len(vocab.id2token) else UNKNOWN_SYMBOL for token in generated_tokens])
+
+    return generated_text
