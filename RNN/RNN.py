@@ -62,12 +62,12 @@ class RNN(nn.Module):
                 # Apply dropout 
                 output_temp = self.dropout(output) # dim (n_batch, seq_length, hidden_dim)
                 # Apply RNN
-                output_temp, hidden_temp = self.rnn_subsequent(output_temp, hidden_temp) # output: (n_batch, seq_length, hidden_dim) , hidden: (n_layers, n_batch, hidden_dim)
+                output_temp, _ = self.rnn_subsequent(output_temp, hidden_temp) # output: (n_batch, seq_length, hidden_dim) , hidden: (n_layers, n_batch, hidden_dim)
                 hout_temp = output_temp[:,hidden_pos,:] # dim: (n_batch,hidden_dim)
                 hout_temp = hout_temp.unsqueeze(0) # dim (1, n_batch, hidden_dim)
                 hout_list.append(hout_temp)
             
-            logits = self.fc(output)  # # (n_batch, seq_length, vocab_size)
+            logits = self.fc(output_temp)  # # (n_batch, seq_length, vocab_size)
             hidden_out = torch.cat(hout_list, dim=0)  # shape: (n_layers, n_batch, hidden_dim)
             return logits, hidden_out, output_temp # # (n_batch, seq_length, vocab_size), (n_layers, n_batch, hidden_dim), (n_batch, seq_length, hidden_dim)
         else:
@@ -92,28 +92,28 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
         same_dataset = True
         # Set the first dataset as the reference dataset
         original_dataset = dataloader_train.bucket_loaders[0].dataset
-        for loader_dataset in dataloader_train.bucket_loaders.values():
-            if loader_dataset is not original_dataset:
+        for loader_b in dataloader_train.bucket_loaders.values():
+            if loader_b.dataset is not original_dataset:
                 same_dataset = False
                 break
         # Good read out the values needed to for a persistent hidden state
         if same_dataset:
-            hidden_pos = original_dataset.stride
+            hidden_pos = original_dataset.stride-1
         else:
             raise ValueError("You must specify a dataloader, which has the same dataset for all buckets if you use a persistent hidden state. You most likely have attempeted to use UnifiedBucketLoader, BucketedSampler or any other internal Bucket function explicitly. Use create_dataset with persistent_hidden_state set to true instead.")
-    if persistent_hidden_state and (hidden_state is None or hidden_state_val):
+    if persistent_hidden_state and (hidden_state is None or hidden_state_val is None):
         raise ValueError("You must specify a hidden_state tensor size (n_plays, n_layers, hidden_dim) if you want to use a persistent hidden state ")
 
     # Create directories needed for logging
-    checkpoint_dir = os.path.join(experiment_dir, 'chekpoints', f'trial{trial}')
+    checkpoint_dir = os.path.join(experiment_dir, 'chekpoints', f'trial_{trial}')
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     # Also log the loss in txt files to use them even after the script has run
-    log_file_dir = os.path.join(experiment_dir, 'log_files')
+    log_file_dir = os.path.join(experiment_dir, 'log_files',f'trial_{trial}')
     os.makedirs(log_file_dir, exist_ok=True)
     log_file_path = os.path.join(log_file_dir, log_file)
 
-    tensorboard_dir = os.path.join(experiment_dir, 'runs',f'trail{trial}')
+    tensorboard_dir = os.path.join(experiment_dir, 'runs',f'trail_{trial}')
 
     # Initialize globale values
     best_val_loss = float('inf')
@@ -184,6 +184,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
         running_loss = 0.0 # This is the loss averaged within batches and added
         total_loss = 0.0 # This is the loss really just summed up without any averaging done
         total_samples = 0 # Used to average the total_loss above
+        total_correct = 0 # Used for accuracy calculations
 
         for i, (inputs, targets) in enumerate(dataloader_train):
             
@@ -251,11 +252,13 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
                 model.eval()
                 val_loss_total = 0.0
                 val_samples = 0
+                val_correct = 0.0
                 with torch.no_grad():
                     for val_inputs, val_targets in dataloader_val:
                         val_inputs, val_targets = val_inputs.to(device), val_targets.to(device)
                         if persistent_hidden_state:
-                            batch_play_ids = dataloader_val.dataset.batch_play_ids  # list of play indices in the batch
+                            # Use validation dataset and not the orignal training dataset (here calle original_dataset)
+                            batch_play_ids = dataloader_val.bucket_loaders[0].dataset.batch_play_ids  # list of play indices in the batch
                             # Convert to tensor and move to accurate device
                             batch_play_ids = torch.tensor(batch_play_ids, device=device)
                             # Extract hidden state for batch
@@ -309,13 +312,14 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
         model.eval()
         val_loss_total = 0.0
         val_samples = 0
+        val_correct = 0
 
         # No gradients needed for evaluation here haha
         with torch.no_grad():
             for val_inputs, val_targets in dataloader_val:
                 val_inputs, val_targets = val_inputs.to(device), val_targets.to(device)
                 if persistent_hidden_state:
-                    batch_play_ids = dataloader_val.dataset.batch_play_ids  # list of play indices in the batch
+                    batch_play_ids = dataloader_val.bucket_loaders[0].dataset.batch_play_ids  # list of play indices in the batch
                     # Convert to tensor and move to accurate device
                     batch_play_ids = torch.tensor(batch_play_ids, device=device)
                     # Extract hidden state for batch
