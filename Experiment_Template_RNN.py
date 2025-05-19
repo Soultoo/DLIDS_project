@@ -13,20 +13,23 @@ import os
 
 
 
-def performExperimentRNN(init_lr= 0.001, min_lr = 0.0001, trial=1, experiment_dir = './Baseline_RNN', log_file = 'training_log_BaselineRNN.txt'):
+def performExperimentRNN(dim_hidden = 256, n_layers= 2, tokenization_level='char', embedding_type ='one-hot', 
+                         fine_tune_embedding = False, seq_length = 50, init_lr= 0.001, min_lr = 0.0001, 
+                         trial=1, experiment_dir = './Baseline_RNN', log_file = 'training_log_BaselineRNN.txt'):
     # ================ Hyper-parameters ================ #
     #--- Fixed Hyperparameters --- # 
-    seq_length = 50 # Length of sequence fed into network
-    dim_hidden = 256 # Dimension of hidden nodes
+    seq_length = seq_length # Length of sequence fed into network
+    dim_hidden = dim_hidden # Dimension of hidden nodes
     activation_func = 'tanh' # Activation function (stays fixed for all experiments) ('tanh' or 'relu')
-    n_layers = 2 # Number of layers in (stacked) RNN
+    n_layers = n_layers # Number of layers in (stacked) RNN
     dropout = 0.15 # Determines dropout rate (might become nuisance parameter later)
     persistent_hidden_state = True # Stays fixed for all experiments
     stride = seq_length # Stays fixed for all experiments
     traverse = 'once' # Stays fixed for all experiments, as recommended in data_handling documentation
-    embedding_type = 'one-hot' # or 'GloVe'
+    embedding_type = embedding_type # or 'GloVe'
+    fine_tune_embedding = fine_tune_embedding
     embedding_dim = None # Is fixed through embedding type later, will play a role if we train embedding layer OR use prettrained embeddings
-    tokenization_level = 'char' # could alternatively be 'word' (only applicable for 2nd experiment)
+    tokenization_level = tokenization_level # could alternatively be 'word' (only applicable for 2nd experiment)
     tokenization_type = None # if level = 'word' => choose that to be 'nltk_shakespeare' (or later BPE)
     
     learning_rate_decay = 'cosine'
@@ -123,7 +126,7 @@ def performExperimentRNN(init_lr= 0.001, min_lr = 0.0001, trial=1, experiment_di
     model = RNN(vocab_size=vocab_size, embedding_dim=embedding_dim, 
                 hidden_size=dim_hidden, output_size=vocab_size, num_layers=n_layers, 
                 activation_function=activation_func, dropout_rate=dropout, 
-                use_pretrained_embedding=True, pretrained_weights=embedding, persistent_hidden_state=True)
+                use_pretrained_embedding=True, pretrained_weights=embedding, persistent_hidden_state=True, fine_tune_embedding=fine_tune_embedding)
     
     # Create optimizer
     if optimizer_algo == 'ADAM':

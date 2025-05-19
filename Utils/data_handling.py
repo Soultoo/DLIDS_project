@@ -7,14 +7,12 @@ import random
 import math
 import itertools
 from collections import defaultdict
-# from transformers import GPT2Tokenizer
+from transformers import GPT2Tokenizer
 
 
 # Import global variables
 from Utils.shakespeare_parser import ENDTOKEN, SECTION_MARKER
 
-# For debugging comment line above out and put instead:
-#from shakespeare_parser import ENDTOKEN, SECTION_MARKER
 
 
 ## Define globale variables
@@ -25,8 +23,10 @@ from Utils.shakespeare_parser import ENDTOKEN, SECTION_MARKER
 # to fill the whole window size
 PADDING_SYMBOL = ' ' # just a whitespace
 UNKNOWN_SYMBOL = "<<UNK>>"
-# Collect all special tokens for BPE 
+# Collect all special tokens for
 SPECIAL_TOKENS = [ENDTOKEN, PADDING_SYMBOL, UNKNOWN_SYMBOL] + list(SECTION_MARKER)
+# Collect all special tokens for BPE w/o PADDING_SYMBOL as they have their own whitespace
+SPECIAL_TOKENS_BPE = [ENDTOKEN, UNKNOWN_SYMBOL] + list(SECTION_MARKER)
 # Max number of words to be predicted if <END> symbol is not reached
 MAX_PREDICTIONS = 20
 
@@ -122,18 +122,46 @@ class Vocabulary():
     
     def lookup_token(self, id):
         '''Returns the token to the corresponding ID, if the ID is not found the UNKNOWN_SYMBOL is returned'''
-        if id in self.id2token:
+        if id < len(self.id2token):
             return self.id2token[id]
         else:
             return UNKNOWN_SYMBOL
         
-    def transform_ID_2_String(self, id_list):
-        '''Transforms a list of ids back into its original string using the vocabulary seen here'''
+    def transform_ID_2_String(self, id_list, tokenization='char'):
+        '''Transforms a list of ids back into its original string using the vocabulary seen here, use a
+        whitespace a a delimiter in case of word-level tokenization
+        tokenization: None | 'BPE' if the tokenization is set to 'BPE' the delimiter becomes useless'''
+        if tokenization == 'char':
+            delimiter = ''
+        elif tokenization == 'nltk_shakespeare' or tokenization == 'nltk_word':
+            delimiter = ' '
+
+            
+        
         text_list = []
         for id in id_list:
             text_list.append(self.lookup_token(id))
-        
-        text = "".join(text_list)
+    
+        if tokenization == 'BPE':
+            # If BPE is used we cannot use the normal join as BPE introduces a lot of special characters
+            if os.path.isdir("./custom_gpt2_tokenizer"):
+                tokenizer = GPT2Tokenizer.from_pretrained("./custom_gpt2_tokenizer")
+            else:
+                # Load pre-trained GPT-2 tokenizer
+                tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+            # Before we can convert, we need to strip away the ' ' as BPE uses its own and we do not want to mess with that (it will otherwise break)
+            token_list_BPE = []
+            for token in text_list:
+                token = token.strip()
+                if token =="":
+                    pass
+                else:
+                    token_list_BPE.append(token)
+            text = tokenizer.convert_tokens_to_string(token_list_BPE)
+            return text
+
+
+        text = delimiter.join(text_list)
         return text
 
     def token_exist(self, token):
@@ -202,12 +230,13 @@ class ShakespeareDataset(Dataset):
                     tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
                     # Add special tokens
-                    special_tokens_dict = {"additional_special_tokens": SPECIAL_TOKENS}
+                    special_tokens_dict = {"additional_special_tokens": SPECIAL_TOKENS_BPE}
                     tokenizer.add_special_tokens(special_tokens_dict)
 
                     # Save for later use
                     tokenizer.save_pretrained("./custom_gpt2_tokenizer")
-                raise NotImplementedError("Advanced batching not implemented yet.")
+
+                self.tokenize = tokenizer.tokenize
         # Character level embedding
         else:
             self.tokenize = CharTokenizer().tokenize # This as a function will split the string into characters except for the <<...>> markers, they are handled as one character too!!
@@ -218,12 +247,15 @@ class ShakespeareDataset(Dataset):
 
         tokenized_text = self.tokenize(text) # tokenizes the text and return a list of tokens
 
+        
+
         # Transform the text into respective IDs
         id_tokenized_text = []
         for token in tokenized_text:
             if self.level == 'word':
-            # Only use lower-case words in case of word level tokenization due to data constraints
-                token = token.lower()
+                if token not in SPECIAL_TOKENS and self.tokenization != 'BPE':
+                # Only use lower-case words in case of word level tokenization due to data constraints (NOT FOR BPE though!!)
+                    token = token.lower()
             if self.record_tokens:
                 id = vocab.add_token(token)
                 id_tokenized_text.append(id)
@@ -231,6 +263,8 @@ class ShakespeareDataset(Dataset):
                 id = vocab.lookup_id(token)
                 id_tokenized_text.append(id)
         
+        # Just for debug purposes
+        #vocab.transform_ID_2_String(id_tokenized_text, tokenization='BPE')
         
         padding_id = self.vocab.token2id[PADDING_SYMBOL]
         endtoken_id = self.vocab.token2id[ENDTOKEN]
@@ -706,7 +740,7 @@ def create_DataLoader(filename, batch_size, seq_Length, shuffle=True, stride=1, 
 # For debugging purposes
 if __name__ == '__main__':
     dataloader, dataset, vocab = create_DataLoader('Data/train_shakespeare_full_corpus.txt', batch_size=10, seq_Length=20,shuffle=True, 
-                      stride=1, level='word', tokenization='nltk_shakespeare', record_tokens=True, 
+                      stride=1, level='word', tokenization='BPE', record_tokens=True, 
                       advanced_batching=True, traverse='once')
     
     # Just print the first 10 samples

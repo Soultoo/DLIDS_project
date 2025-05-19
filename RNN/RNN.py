@@ -4,7 +4,7 @@ from torch.utils.tensorboard import SummaryWriter
 import os
 
 class RNN(nn.Module):
-    def __init__(self, vocab_size, embedding_dim, hidden_size, output_size, num_layers=1, activation_function='tanh', dropout_rate=0.0, use_pretrained_embedding=False, pretrained_weights=None, persistent_hidden_state=False):
+    def __init__(self, vocab_size, embedding_dim, hidden_size, output_size, num_layers=1, activation_function='tanh', dropout_rate=0.0, use_pretrained_embedding=False, pretrained_weights=None, persistent_hidden_state=False, fine_tune_embedding=False):
         super().__init__()
 
         self.vocab_size = vocab_size
@@ -18,7 +18,10 @@ class RNN(nn.Module):
         if use_pretrained_embedding:
             if pretrained_weights is None:
                 raise ValueError("You must provide pretrained_weights if use_pretrained_embedding is True.")
-            self.embedding = nn.Embedding.from_pretrained(pretrained_weights, freeze=True) 
+            if fine_tune_embedding:
+                self.embedding = nn.Embedding.from_pretrained(pretrained_weights, freeze=False) 
+            else:
+                self.embedding = nn.Embedding.from_pretrained(pretrained_weights, freeze=True) 
         else:
             self.embedding = nn.Embedding(vocab_size, embedding_dim)
 
