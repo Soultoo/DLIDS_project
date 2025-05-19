@@ -219,7 +219,7 @@ class GPT(nn.Module):
     
     
     
-    def configure_optimizers(self, weight_decay, learning_rate, betas, device_type): ##tag #TODO8e4 Are we able to set weight_decay = 0?
+    def configure_optimizers(self, weight_decay, learning_rate, betas, device_type): 
         # start with all of the candidate parameters
         param_dict = {pn: p for pn, p in self.named_parameters()}
         # filter out those that do not require grad

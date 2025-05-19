@@ -17,10 +17,13 @@ $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 --master_addr=123.456.123
 """
 
 import os
+import sys
 import time
 import math
 import pickle
 from contextlib import nullcontext
+
+from torch.utils.tensorboard import SummaryWriter
 
 import numpy as np
 import torch
@@ -28,6 +31,13 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 
 from our_GPT_model import GPTConfig, GPT
+
+# from Utils.data_handling import create_DataLoader, Vocabulary
+#from ...Utils.data_handling import create_DataLoader, Vocabulary
+
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 from Utils.data_handling import create_DataLoader, Vocabulary
 
@@ -83,6 +93,10 @@ embedding_dim = None  # Will be set based on vocabulary size
 train_file = ''
 val_file = ''
 emb_dim_is_token_dim = False
+
+trial = None # Set this to an int in config file
+
+smooth_loss_factor = 0
 # -----------------------------------------------------------------------------
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
 exec(open('configurator.py').read()) # overrides from command line or config file
@@ -90,23 +104,93 @@ config = {k: globals()[k] for k in config_keys} # will be useful for logging
 # -----------------------------------------------------------------------------
 
 # More stuff to use our data loader ---------------
-vocab = Vocabulary()
+# vocab = Vocabulary() ##tag #TODOe77 Why do they create a vocab before the dataloader??
 # Create data loaders
 print("Creating data loaders...")
 seq_length = block_size
-train_loader, _, _ = create_DataLoader(train_file, batch_size, seq_length, shuffle=True, stride=stride,
-                                        level=level, tokenization=tokenization, vocab=vocab, record_tokens=True,
+train_loader, _, vocab = create_DataLoader(train_file, batch_size, seq_length, shuffle=True, stride=stride,
+                                        level=level, tokenization=tokenization, record_tokens=True,
                                         advanced_batching=True, traverse=traverse)
-val_loader, _, _ = create_DataLoader(val_file, batch_size, seq_length, shuffle=False, stride=stride,
-                                        level=level, tokenization=tokenization, vocab=vocab, record_tokens=False,
+val_loader, _, vocab = create_DataLoader(val_file, batch_size, seq_length, shuffle=False, stride=stride,
+                                        level=level, tokenization=tokenization, record_tokens=False,
                                         advanced_batching=True, traverse=traverse)
 print("Training data loader created.")
 print("Validation data loader created.")
 
 if (emb_dim_is_token_dim):
     n_embd = vocab.vocab_size
+    print('')
+    print('n_embd (Note: ):')
+    print(n_embd)
+    
+
+smooth_loss_train = 0
+smooth_loss_val = 0
+
+# Adjustments for nanoGPT:
+
+train_iter = iter(train_loader) ##tag #TODO84b Debug that different examples actually get processed
+val_iter = iter(val_loader)
+
+def get_batch_our(split):
+    global train_iter, val_iter
+
+    loader = train_iter if split == 'train' else val_iter
+
+    try:
+        x, y = next(loader)
+    except StopIteration:
+        if split == 'train':
+            train_iter = iter(train_loader)
+            x, y = next(train_iter)
+        else:
+            val_iter = iter(val_loader)
+            x, y = next(val_iter)
+
+    return x.to(device), y.to(device)
 
 # ------------------------------------------------
+
+
+# Tensorboard and logging:
+tensorboard_dir = out_dir + '/tensorboard'
+tensorboard_dir = 'runs' ##tag #TODO2b9 Remove this when youve figured out tensorboard
+
+# Create directories needed for logging
+checkpoint_dir = out_dir + '/checkpoint' + 'trial_' + str(trial)
+os.makedirs(checkpoint_dir, exist_ok=True)
+out_dir = checkpoint_dir
+
+experiment_dir = out_dir + '/experiment'
+
+# Also log the loss in txt files to use them even after the script has run
+log_file_dir = os.path.join(experiment_dir, 'log_files')
+os.makedirs(log_file_dir, exist_ok=True)
+
+log_file = '/logFile'
+log_file_path = os.path.join(log_file_dir, log_file)
+
+tensorboard_dir = os.path.join(experiment_dir, 'runs',f'trial{trial}')
+
+# Initialize globale values
+best_val_loss = float('inf')
+global_step = 0  # Collect update steps over all epochs for logging
+# Create history dicts to visualize the loss curves later
+history = {
+    'train_loss': [], # List of (step, loss)
+    'val_loss': [], # List of (step, loss)
+    'train_acc':[], # List of (step, accuracy)
+    'val_acc': [], # List of (step, accuracy)
+
+}
+
+writer = SummaryWriter(log_dir=tensorboard_dir)
+
+print('')
+print('writer.log_dir (Note: ):')
+print(writer.log_dir)
+
+#-------------------------
 
 # various inits, derived attributes, I/O setup
 ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
@@ -160,6 +244,10 @@ def get_batch(split):
         x, y = x.to(device), y.to(device)
     return x, y
 
+
+
+
+
 # init these up here, can override if init_from='resume' (i.e. from a checkpoint)
 iter_num = 0
 best_val_loss = 1e9
@@ -174,15 +262,22 @@ if os.path.exists(meta_path):
     print(f"found vocab_size = {meta_vocab_size} (inside {meta_path})")
 
 # model init
+print('')
+print('vocab.vocab_size (Note: TRYING TO SET vocab_size TO THIS VALUE):')
+print(vocab.vocab_size)
+
 model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
-                  bias=bias, vocab_size=None, dropout=dropout) # start with model_args from command line
+                  bias=bias, vocab_size=vocab.vocab_size, dropout=dropout) # start with model_args from command line # Trying to add vocab.vocab_size here
+
+
 if init_from == 'scratch':
     # init a new model from scratch
     print("Initializing a new model from scratch")
     # determine the vocab size we'll use for from-scratch training
     if meta_vocab_size is None:
         print("defaulting to vocab_size of GPT-2 to 50304 (50257 rounded up for efficiency)")
-    model_args['vocab_size'] = meta_vocab_size if meta_vocab_size is not None else 50304
+    #model_args['vocab_size'] = meta_vocab_size if meta_vocab_size is not None else 50304
+    model_args['vocab_size'] = vocab.vocab_size if meta_vocab_size is not None else 50304 # Just wrote this over, not good but gotta go fast
     gptconf = GPTConfig(**model_args)
     model = GPT(gptconf)
 elif init_from == 'resume':
@@ -249,7 +344,10 @@ def estimate_loss():
     for split in ['train', 'val']:
         losses = torch.zeros(eval_iters)
         for k in range(eval_iters):
-            X, Y = get_batch(split)
+            # X, Y = get_batch(split)
+            X, Y = get_batch_our(split)
+            #print("max token ID in batch:", X.max().item())
+            #print("vocab size in model:", model_args['vocab_size'])
             with ctx:
                 logits, loss = model(X, Y)
             losses[k] = loss.item()
@@ -277,7 +375,8 @@ if wandb_log and master_process:
     wandb.init(project=wandb_project, name=wandb_run_name, config=config)
 
 # training loop
-X, Y = get_batch('train') # fetch the very first batch
+#X, Y = get_batch('train') # fetch the very first batch
+X, Y = get_batch_our('train')
 t0 = time.time()
 local_iter_num = 0 # number of iterations in the lifetime of this process
 raw_model = model.module if ddp else model # unwrap DDP container if needed
@@ -302,7 +401,7 @@ while True:
                 "mfu": running_mfu*100, # convert to percentage
             })
         
-        
+        # --------- #tag *LOGGING WITH TENSORBOARD AND STUFF* ---------
         if losses['val'] < best_val_loss or always_save_checkpoint:
             best_val_loss = losses['val']
             if iter_num > 0:
@@ -316,7 +415,38 @@ while True:
                 }
                 print(f"saving checkpoint to {out_dir}")
                 
-                torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
+                torch.save(checkpoint, os.path.join(out_dir, 'ckpt_' + str(iter_num) + '.pt'))
+            # Save print and log losses
+            writer.add_scalar('Loss/train', losses['train'], iter_num)
+            writer.add_scalar('Loss/val', losses['val'], iter_num)
+            
+            
+            if iter_num == 0: # So we don't get a distroted curve because of adding small ammounts
+                smooth_loss_train = losses['train']
+                smooth_loss_val = losses['val']
+            else:
+                smooth_loss_train = smooth_loss_train * smooth_loss_factor + losses['train'] * (1-smooth_loss_factor)
+                smooth_loss_val = smooth_loss_val * smooth_loss_factor + losses['val'] * (1-smooth_loss_factor)
+            writer.add_scalar('SmoothLoss/train', smooth_loss_train, iter_num)
+            writer.add_scalar('SmoothLoss/val', smooth_loss_val, iter_num)
+        
+            
+            
+            #history['train_loss'].append((global_step, train_loss_avg))
+            #history['val_loss'].append((global_step, val_loss_avg))
+
+            # Save print and log accuracy
+            # writer.add_scalar('Accuracy/train', train_acc_avg, global_step)
+            # writer.add_scalar('Accuracy/val', val_acc_avg, global_step)
+            # history['train_acc'].append((global_step, train_acc_avg))
+            # history['val_acc'].append((global_step, val_acc_avg))
+            
+            # Log gradient size for stability analysis
+            for name, param in model.named_parameters():
+                if param.grad is not None:
+                    writer.add_histogram(f'gradients/{name}', param.grad, global_step)
+                    
+                    
     if iter_num == 0 and eval_only:
         break
 
@@ -333,7 +463,8 @@ while True:
             logits, loss = model(X, Y)
             loss = loss / gradient_accumulation_steps # scale the loss to account for gradient accumulation
         # immediately async prefetch next batch while model is doing the forward pass on the GPU
-        X, Y = get_batch('train')
+        #X, Y = get_batch('train')
+        X, Y = get_batch_our('train')
         # backward pass, with gradient scaling if training in fp16
         scaler.scale(loss).backward()
     # clip the gradient
@@ -363,6 +494,11 @@ while True:
 
     # termination conditions
     if iter_num > max_iters:
+        print("Finished training.")
+        # Save print and log losses
+        writer.add_scalar('Loss/train', losses['train'], iter_num + 0.01) # + 0.01 as to avoid double writing for the same update step between online and after epoch validation
+        writer.add_scalar('Loss/val', losses['val'], iter_num + 0.01)
+        writer.close()
         break
 
 if ddp:

@@ -1,4 +1,4 @@
-trial = 6
+trial = 8
 
 max_iters = 30000
 out_dir = 'baseline_model_checkpoints_our_loader-shakespeare'
@@ -34,9 +34,9 @@ batch_size = 64
 
 
 # --------- #tag *Some of the model parameters (others are inferred)* ---------
-block_size = 50 # context of up to 256 previous tokens
-n_layer = 2
-n_head = 4
+block_size = 100 # context of up to 256 previous tokens
+n_layer = 4
+n_head = 8 # doubled
 n_embd = 384
 dropout = 0.15
 bias = False # do we use bias inside LayerNorm and Linear layers?
@@ -52,17 +52,17 @@ lr_decay_iters = max_iters # make equal to max_iters usually
 min_lr = learning_rate / 10 # learning_rate / 10 usually
 
 # --------- #tag *Other that we probably want to set to not have effect* ---------
-weight_decay = 0.0
+weight_decay = 0.1
 grad_clip = 0.0 # clip gradients at this value, or disable if == 0.0
-warmup_iters = 0
+warmup_iters = 200
 
 # --------- #tag *Device* ---------
 
 device = 'cuda' # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
 compile = False # use PyTorch 2.0 to compile the model to be faster
 
-# --------- #tag *Other settings* ---------
-smooth_loss_factor = 0.999 # 0.01 of new losses get added
+
+smooth_loss_factor = 0.9 # 0.01 of new losses get added
 
 # on macbook also add
 # device = 'cpu'  # run on cpu only
