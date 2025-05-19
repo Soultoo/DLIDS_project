@@ -25,10 +25,10 @@ class RNN(nn.Module):
         # The reason for why i split this here instead of just using one rnn with the num_layers attribute set to n_layers_RNN is because
         # with a persistent hidden state I need access to the hidden vectors of all layers of the whole sequence!!
         if self.persistent_hidden_state:
-            self.rnn1 = nn.RNN(embedding_dim, hidden_size, num_layers=1, nonlinearity=activation_function, batch_first=True, dropout=dropout_rate)
+            self.rnn1 = nn.RNN(embedding_dim, hidden_size, num_layers=1, nonlinearity=activation_function, batch_first=True)
             # Add dropuut layer manually
             self.dropout = nn.Dropout(dropout_rate)
-            self.rnn_subsequent = nn.RNN(hidden_size, hidden_size, num_layers=1, nonlinearity=activation_function, batch_first=True, dropout=dropout_rate)
+            self.rnn_subsequent = nn.RNN(hidden_size, hidden_size, num_layers=1, nonlinearity=activation_function, batch_first=True)
         else: 
             self.rnn = nn.RNN(embedding_dim, hidden_size, num_layers, nonlinearity=activation_function, batch_first=True, dropout=dropout_rate)
         
@@ -92,7 +92,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
         same_dataset = True
         # Set the first dataset as the reference dataset
         original_dataset = dataloader_train.bucket_loaders[0].dataset
-        for loader_dataset in dataloader_train.bucketloaders.values():
+        for loader_dataset in dataloader_train.bucket_loaders.values():
             if loader_dataset is not original_dataset:
                 same_dataset = False
                 break
