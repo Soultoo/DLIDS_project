@@ -136,6 +136,14 @@ class Vocabulary():
         text = "".join(text_list)
         return text
 
+    def token_exist(self, token):
+        '''Checks if token exists in vocabulary and returns either True or False'''
+        if token in self.token2id:
+            return True
+        else: 
+            return False
+
+
 
 # Create custom dataclass
 class ShakespeareDataset(Dataset):
@@ -213,6 +221,9 @@ class ShakespeareDataset(Dataset):
         # Transform the text into respective IDs
         id_tokenized_text = []
         for token in tokenized_text:
+            if self.level == 'word':
+            # Only use lower-case words in case of word level tokenization due to data constraints
+                token = token.lower()
             if self.record_tokens:
                 id = vocab.add_token(token)
                 id_tokenized_text.append(id)
@@ -695,7 +706,7 @@ def create_DataLoader(filename, batch_size, seq_Length, shuffle=True, stride=1, 
 # For debugging purposes
 if __name__ == '__main__':
     dataloader, dataset, vocab = create_DataLoader('Data/train_shakespeare_full_corpus.txt', batch_size=10, seq_Length=20,shuffle=True, 
-                      stride=1, level='char', tokenization='nltk_shakespeare', record_tokens=True, 
+                      stride=1, level='word', tokenization='nltk_shakespeare', record_tokens=True, 
                       advanced_batching=True, traverse='once')
     
     # Just print the first 10 samples
