@@ -141,13 +141,13 @@ def performExperimentRNN(init_lr= 0.001, min_lr = 0.0001, trial=1, experiment_di
     
     
     # model = model.to(device) # NOT NEEDED is done in train_rnn
-    history = train_rnn(model, train_dataloader, val_dataloader, optimizer, persistent_hidden_state=True, hidden_state=hidden_states, hidden_state_val=hidden_states_val,
+    history, model = train_rnn(model, train_dataloader, val_dataloader, optimizer, persistent_hidden_state=True, hidden_state=hidden_states, hidden_state_val=hidden_states_val,
                device=device, num_epochs=n_epochs, print_every=100, val_every_n_steps=500, scheduler=scheduler, experiment_dir=experiment_dir, log_file=log_file, 
                trial=trial)
 
     
     
-
+    return model, history, vocab, train_dataset, val_dataset
     # ==================== EVALUATION ==================== #
     
 

@@ -389,7 +389,12 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
     # Close writer
     writer.flush()
     writer.close()
-    return history
+
+    # Load best model and return it
+    checkpoint = torch.load(os.path.join(checkpoint_dir, f"model_best_epoch_{epoch}.pt"), map_location='cuda')
+    model.load_state_dict(checkpoint['model_state_dict'])
+
+    return history, model
 
 
 def evaluate_rnn(model, dataloader, device='cpu'):
