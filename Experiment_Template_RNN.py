@@ -13,7 +13,7 @@ import os
 
 
 
-def performExperimentRNN():
+def performExperimentRNN(init_lr= 0.001, min_lr = 0.0001, trial=1, experiment_dir = './Baseline_RNN', log_file = 'training_log_BaselineRNN.txt'):
     # ================ Hyper-parameters ================ #
     #--- Fixed Hyperparameters --- # 
     seq_length = 50 # Length of sequence fed into network
@@ -40,8 +40,8 @@ def performExperimentRNN():
 
 
     #--- Nuisance parameters ---#
-    init_lr = 0.001  # initial learning rate at beginning of the decay
-    min_lr = 0.0001 # minimum learning rate at the end of the decay
+    init_lr = init_lr  # initial learning rate at beginning of the decay
+    min_lr = min_lr # minimum learning rate at the end of the decay
 
     #--- other paratemers ---#
     save = False # Save or not save the model 
@@ -143,7 +143,7 @@ def performExperimentRNN():
     # model = model.to(device) # NOT NEEDED is done in train_rnn
     history = train_rnn(model, train_dataloader, val_dataloader, optimizer, persistent_hidden_state=True, hidden_state=hidden_states, hidden_state_val=hidden_states_val,
                device=device, num_epochs=n_epochs, print_every=100, val_every_n_steps=500, scheduler=scheduler, experiment_dir=experiment_dir, log_file=log_file, 
-               trial=1)
+               trial=trial)
 
     
     
