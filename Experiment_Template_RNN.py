@@ -140,7 +140,7 @@ def performExperimentRNN():
         raise NotImplementedError('Linear decay is not implemented yet.')
     
     
-    # model.to(device) # NOT NEEDED is done in train_rnn
+    # model = model.to(device) # NOT NEEDED is done in train_rnn
     history = train_rnn(model, train_dataloader, val_dataloader, optimizer, persistent_hidden_state=True, hidden_state=hidden_states, hidden_state_val=hidden_states_val,
                device=device, num_epochs=n_epochs, print_every=100, val_every_n_steps=500, scheduler=scheduler, experiment_dir=experiment_dir, log_file=log_file, 
                trial=1)

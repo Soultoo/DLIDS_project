@@ -88,8 +88,8 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
     # accross the buckets must be the same and we extract information from them and read out data
     if persistent_hidden_state:
         # Move hidden_state to appropriate device
-        hidden_state.to(device)
-        hidden_state_val.to(device)
+        hidden_state = hidden_state.to(device)
+        hidden_state_val = hidden_state_val.to(device)
         same_dataset = True
         # Set the first dataset as the reference dataset
         original_dataset = dataloader_train.bucket_loaders[0].dataset
@@ -174,7 +174,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
 
     
     ###--- Start real training ----###
-    model.to(device)
+    model = model.to(device)
     criterion = nn.CrossEntropyLoss()
 
     
@@ -200,7 +200,6 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
                 batch_hidden_state = hidden_state[batch_play_ids] # dim: (n_batch, n_layers, hidden_dim)
                 # Reshape to correct shape of (n_layers, n_batch, hidden_dim)
                 batch_hidden_state = batch_hidden_state.permute(1,0,2).contiguous() # dim: (n_layers, n_batch, hidden_dim)
-                batch_hidden_state.to(device)
                 print(batch_hidden_state.device)
                 # logits: (n_batch, seq_length, vocab_size),hidden: (n_layers, n_batch, hidden_dim), output: (n_batch, seq_length, hidden_dim)
                 logits, hidden, output= model(inputs, batch_hidden_state, hidden_pos) 
@@ -267,7 +266,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
                             # Extract hidden state for batch
                             batch_hidden_state = hidden_state_val[batch_play_ids]  # (n_batch, n_layers, hidden_dim)
                             batch_hidden_state = batch_hidden_state.permute(1, 0, 2).contiguous()  # (layers, batch, hidden_dim)
-                            batch_hidden_state.to(device)
+                            # batch_hidden_state = batch_hidden_state.to(device)
                             val_logits, hidden, _ = model(val_inputs, batch_hidden_state, hidden_pos=0)
 
                             # Detach and store back to global val hidden state
@@ -328,7 +327,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
                     # Extract hidden state for batch
                     batch_hidden_state = hidden_state_val[batch_play_ids]  # (n_batch, n_layers, hidden_dim)
                     batch_hidden_state = batch_hidden_state.permute(1, 0, 2).contiguous()  # (layers, batch, hidden_dim)
-                    batch_hidden_state.to(device)
+                    # batch_hidden_state.to(device)
                     val_logits, hidden, _ = model(val_inputs, batch_hidden_state, hidden_pos=0)
 
                     # Detach and store back to global val hidden state
@@ -397,7 +396,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
 
 
 def evaluate_rnn(model, dataloader, device='cpu'):
-    model.to(device)
+    model = model.to(device)
     model.eval()
     criterion = nn.CrossEntropyLoss()
     total_loss = 0
