@@ -47,10 +47,11 @@ class RNN(nn.Module):
         n_batch = X.shape[0]
         #Apply emebding
         X = self.embedding(X) # dim: (n_batch, seq_length, embedding_dim)
-
+        print(X.device)
         if self.persistent_hidden_state:
             hout_list = []
             hidden_states1 = hidden_states[0].unsqueeze(0) # dim (1,n_batch, hidden_dim)
+            print(hidden_states1.device)
             output, _ = self.rnn1(X, hidden_states1) #  output: (n_batch, seq_length, hidden_dim) , hidden: (1, n_batch, hidden_dim)
             hout1 = output[:,hidden_pos,:] # dim: (n_batch,hidden_dim)
             hout1 = hout1.unsqueeze(0) # dim (1, n_batch, hidden_dim)
@@ -200,6 +201,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
                 # Reshape to correct shape of (n_layers, n_batch, hidden_dim)
                 batch_hidden_state = batch_hidden_state.permute(1,0,2).contiguous() # dim: (n_layers, n_batch, hidden_dim)
                 batch_hidden_state.to(device)
+                print(batch_hidden_state.device)
                 # logits: (n_batch, seq_length, vocab_size),hidden: (n_layers, n_batch, hidden_dim), output: (n_batch, seq_length, hidden_dim)
                 logits, hidden, output= model(inputs, batch_hidden_state, hidden_pos) 
                 # Update the hidden_state vector
