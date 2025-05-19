@@ -14,7 +14,7 @@ from collections import defaultdict
 from Utils.shakespeare_parser import ENDTOKEN, SECTION_MARKER
 
 # For debugging comment line above out and put instead:
-# from shakespeare_parser import ENDTOKEN, SECTION_MARKER
+#from shakespeare_parser import ENDTOKEN, SECTION_MARKER
 
 
 ## Define globale variables

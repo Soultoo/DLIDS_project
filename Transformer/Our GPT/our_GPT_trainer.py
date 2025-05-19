@@ -29,6 +29,8 @@ from torch.distributed import init_process_group, destroy_process_group
 
 from our_GPT_model import GPTConfig, GPT
 
+from Utils.data_handling import create_DataLoader, Vocabulary
+
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
 # I/O
@@ -72,11 +74,39 @@ backend = 'nccl' # 'nccl', 'gloo', etc.
 device = 'cuda' # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
 dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
 compile = True # use PyTorch 2.0 to compile the model to be faster
+# Our data loader----------------
+stride = 1
+level = 'char'
+tokenization = 'nltk_shakespeare'
+traverse = 'once'
+embedding_dim = None  # Will be set based on vocabulary size
+train_file = ''
+val_file = ''
+emb_dim_is_token_dim = False
 # -----------------------------------------------------------------------------
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
 exec(open('configurator.py').read()) # overrides from command line or config file
 config = {k: globals()[k] for k in config_keys} # will be useful for logging
 # -----------------------------------------------------------------------------
+
+# More stuff to use our data loader ---------------
+vocab = Vocabulary()
+# Create data loaders
+print("Creating data loaders...")
+seq_length = block_size
+train_loader, _, _ = create_DataLoader(train_file, batch_size, seq_length, shuffle=True, stride=stride,
+                                        level=level, tokenization=tokenization, vocab=vocab, record_tokens=True,
+                                        advanced_batching=True, traverse=traverse)
+val_loader, _, _ = create_DataLoader(val_file, batch_size, seq_length, shuffle=False, stride=stride,
+                                        level=level, tokenization=tokenization, vocab=vocab, record_tokens=False,
+                                        advanced_batching=True, traverse=traverse)
+print("Training data loader created.")
+print("Validation data loader created.")
+
+if (emb_dim_is_token_dim):
+    n_embd = vocab.vocab_size
+
+# ------------------------------------------------
 
 # various inits, derived attributes, I/O setup
 ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
