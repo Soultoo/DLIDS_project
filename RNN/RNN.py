@@ -199,6 +199,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
                 batch_hidden_state = hidden_state[batch_play_ids] # dim: (n_batch, n_layers, hidden_dim)
                 # Reshape to correct shape of (n_layers, n_batch, hidden_dim)
                 batch_hidden_state = batch_hidden_state.permute(1,0,2).contiguous() # dim: (n_layers, n_batch, hidden_dim)
+                batch_hidden_state.to(device)
                 # logits: (n_batch, seq_length, vocab_size),hidden: (n_layers, n_batch, hidden_dim), output: (n_batch, seq_length, hidden_dim)
                 logits, hidden, output= model(inputs, batch_hidden_state, hidden_pos) 
                 # Update the hidden_state vector
@@ -264,7 +265,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
                             # Extract hidden state for batch
                             batch_hidden_state = hidden_state_val[batch_play_ids]  # (n_batch, n_layers, hidden_dim)
                             batch_hidden_state = batch_hidden_state.permute(1, 0, 2).contiguous()  # (layers, batch, hidden_dim)
-
+                            batch_hidden_state.to(device)
                             val_logits, hidden, _ = model(val_inputs, batch_hidden_state, hidden_pos=0)
 
                             # Detach and store back to global val hidden state
@@ -325,7 +326,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
                     # Extract hidden state for batch
                     batch_hidden_state = hidden_state_val[batch_play_ids]  # (n_batch, n_layers, hidden_dim)
                     batch_hidden_state = batch_hidden_state.permute(1, 0, 2).contiguous()  # (layers, batch, hidden_dim)
-
+                    batch_hidden_state.to(device)
                     val_logits, hidden, _ = model(val_inputs, batch_hidden_state, hidden_pos=0)
 
                     # Detach and store back to global val hidden state
