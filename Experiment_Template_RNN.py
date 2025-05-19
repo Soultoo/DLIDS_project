@@ -122,8 +122,8 @@ def performExperimentRNN():
 
     model = RNN(vocab_size=vocab_size, embedding_dim=embedding_dim, 
                 hidden_size=dim_hidden, output_size=vocab_size, num_layers=n_layers, 
-                activation_function=activation_func, dropout=dropout, 
-                use_pretrained_embedding=True, pretrained_weights=embedding)
+                activation_function=activation_func, dropout_rate=dropout, 
+                use_pretrained_embedding=True, pretrained_weights=embedding, persistent_hidden_state=True)
     
     # Create optimizer
     if optimizer_algo == 'ADAM':
@@ -133,9 +133,9 @@ def performExperimentRNN():
 
     # Create the scheduler
     # Estimate how many update steps there are. NOTE: This is an upper bound as we set drop_last to true, the likely update steps will be shorter
-    total_update_steps = n_epochs*train_dataset.n_samples
-    if learning_rate_decay == 'cos-decay':
-        scheduler = CosineAnnealingLR(optimizer, T_max=total_update_steps, eta_min=min_lr)
+    # total_update_steps = n_epochs*train_dataset.n_samples // batch_size
+    if learning_rate_decay == 'cosine':
+        scheduler = CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=min_lr)
     elif learning_rate_decay == 'lin-decay':
         raise NotImplementedError('Linear decay is not implemented yet.')
     

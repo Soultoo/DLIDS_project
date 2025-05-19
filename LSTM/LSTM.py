@@ -208,3 +208,40 @@ def evaluate_lstm(model, dataloader, device='cpu'):
     accuracy = total_correct / total_samples * 100
     print(f"Eval Loss: {avg_loss:.4f}, Accuracy: {accuracy:.2f}%")
     return avg_loss, accuracy
+
+
+
+def generate_text(model, start_str, length, vocab, device='cpu', temperature=1.0):
+    model.eval()
+    model.to(device)
+
+    # Ensure <UNK> token exists
+    unk_token = "<UNK>"
+    if unk_token not in vocab.token2id:
+        vocab.token2id[unk_token] = len(vocab.token2id)
+        vocab.id2token.append(unk_token)
+    unk_id = vocab.token2id[unk_token]
+
+    # Encode start string
+    input_ids = [vocab.token2id.get(token, unk_id) for token in start_str]
+    generated_ids = input_ids[:]
+
+    # Only use the last token as input to speed things up to change later but now for test
+    input_tensor = torch.tensor([[input_ids[-1]]], dtype=torch.long, device=device)
+    hidden = None
+
+    for _ in range(length):
+        with torch.no_grad():
+            logits, hidden, _ = model(input_tensor, hidden)
+
+        # Sample from the logits
+        probs = torch.softmax(logits[0, -1] / temperature, dim=-1)
+        next_id = torch.multinomial(probs, num_samples=1).item()
+        generated_ids.append(next_id)
+
+        # Next input is the last generated token
+        input_tensor = torch.tensor([[next_id]], dtype=torch.long, device=device)
+
+    # Decode the token IDs
+    return ''.join(vocab.id2token[i] if i < len(vocab.id2token) else unk_token for i in generated_ids)
+

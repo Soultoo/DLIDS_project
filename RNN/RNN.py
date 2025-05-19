@@ -25,10 +25,10 @@ class RNN(nn.Module):
         # The reason for why i split this here instead of just using one rnn with the num_layers attribute set to n_layers_RNN is because
         # with a persistent hidden state I need access to the hidden vectors of all layers of the whole sequence!!
         if self.persistent_hidden_state:
-            self.rnn1 = nn.RNN(embedding_dim, hidden_size, num_layers=1, nonlinearity=activation_function, batch_first=True, dropout=dropout_rate)
+            self.rnn1 = nn.RNN(embedding_dim, hidden_size, num_layers=1, nonlinearity=activation_function, batch_first=True)
             # Add dropuut layer manually
             self.dropout = nn.Dropout(dropout_rate)
-            self.rnn_subsequent = nn.RNN(hidden_size, hidden_size, num_layers=1, nonlinearity=activation_function, batch_first=True, dropout=dropout_rate)
+            self.rnn_subsequent = nn.RNN(hidden_size, hidden_size, num_layers=1, nonlinearity=activation_function, batch_first=True)
         else: 
             self.rnn = nn.RNN(embedding_dim, hidden_size, num_layers, nonlinearity=activation_function, batch_first=True, dropout=dropout_rate)
         
@@ -62,12 +62,12 @@ class RNN(nn.Module):
                 # Apply dropout 
                 output_temp = self.dropout(output) # dim (n_batch, seq_length, hidden_dim)
                 # Apply RNN
-                output_temp, hidden_temp = self.rnn_subsequent(output_temp, hidden_temp) # output: (n_batch, seq_length, hidden_dim) , hidden: (n_layers, n_batch, hidden_dim)
+                output_temp, _ = self.rnn_subsequent(output_temp, hidden_temp) # output: (n_batch, seq_length, hidden_dim) , hidden: (n_layers, n_batch, hidden_dim)
                 hout_temp = output_temp[:,hidden_pos,:] # dim: (n_batch,hidden_dim)
                 hout_temp = hout_temp.unsqueeze(0) # dim (1, n_batch, hidden_dim)
                 hout_list.append(hout_temp)
             
-            logits = self.fc(output)  # # (n_batch, seq_length, vocab_size)
+            logits = self.fc(output_temp)  # # (n_batch, seq_length, vocab_size)
             hidden_out = torch.cat(hout_list, dim=0)  # shape: (n_layers, n_batch, hidden_dim)
             return logits, hidden_out, output_temp # # (n_batch, seq_length, vocab_size), (n_layers, n_batch, hidden_dim), (n_batch, seq_length, hidden_dim)
         else:
@@ -92,28 +92,28 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
         same_dataset = True
         # Set the first dataset as the reference dataset
         original_dataset = dataloader_train.bucket_loaders[0].dataset
-        for loader_dataset in dataloader_train.bucketloaders.values():
-            if loader_dataset is not original_dataset:
+        for loader_b in dataloader_train.bucket_loaders.values():
+            if loader_b.dataset is not original_dataset:
                 same_dataset = False
                 break
         # Good read out the values needed to for a persistent hidden state
         if same_dataset:
-            hidden_pos = original_dataset.stride
+            hidden_pos = original_dataset.stride-1
         else:
             raise ValueError("You must specify a dataloader, which has the same dataset for all buckets if you use a persistent hidden state. You most likely have attempeted to use UnifiedBucketLoader, BucketedSampler or any other internal Bucket function explicitly. Use create_dataset with persistent_hidden_state set to true instead.")
-    if persistent_hidden_state and (hidden_state is None or hidden_state_val):
+    if persistent_hidden_state and (hidden_state is None or hidden_state_val is None):
         raise ValueError("You must specify a hidden_state tensor size (n_plays, n_layers, hidden_dim) if you want to use a persistent hidden state ")
 
     # Create directories needed for logging
-    checkpoint_dir = os.path.join(experiment_dir, 'chekpoints', f'trial{trial}')
+    checkpoint_dir = os.path.join(experiment_dir, 'chekpoints', f'trial_{trial}')
     os.makedirs(checkpoint_dir, exist_ok=True)
 
     # Also log the loss in txt files to use them even after the script has run
-    log_file_dir = os.path.join(experiment_dir, 'log_files')
+    log_file_dir = os.path.join(experiment_dir, 'log_files',f'trial_{trial}')
     os.makedirs(log_file_dir, exist_ok=True)
     log_file_path = os.path.join(log_file_dir, log_file)
 
-    tensorboard_dir = os.path.join(experiment_dir, 'runs',f'trail{trial}')
+    tensorboard_dir = os.path.join(experiment_dir, 'runs',f'trail_{trial}')
 
     # Initialize globale values
     best_val_loss = float('inf')
@@ -184,6 +184,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
         running_loss = 0.0 # This is the loss averaged within batches and added
         total_loss = 0.0 # This is the loss really just summed up without any averaging done
         total_samples = 0 # Used to average the total_loss above
+        total_correct = 0 # Used for accuracy calculations
 
         for i, (inputs, targets) in enumerate(dataloader_train):
             
@@ -198,6 +199,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
                 batch_hidden_state = hidden_state[batch_play_ids] # dim: (n_batch, n_layers, hidden_dim)
                 # Reshape to correct shape of (n_layers, n_batch, hidden_dim)
                 batch_hidden_state = batch_hidden_state.permute(1,0,2).contiguous() # dim: (n_layers, n_batch, hidden_dim)
+                batch_hidden_state.to(device)
                 # logits: (n_batch, seq_length, vocab_size),hidden: (n_layers, n_batch, hidden_dim), output: (n_batch, seq_length, hidden_dim)
                 logits, hidden, output= model(inputs, batch_hidden_state, hidden_pos) 
                 # Update the hidden_state vector
@@ -251,17 +253,19 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
                 model.eval()
                 val_loss_total = 0.0
                 val_samples = 0
+                val_correct = 0.0
                 with torch.no_grad():
                     for val_inputs, val_targets in dataloader_val:
                         val_inputs, val_targets = val_inputs.to(device), val_targets.to(device)
                         if persistent_hidden_state:
-                            batch_play_ids = dataloader_val.dataset.batch_play_ids  # list of play indices in the batch
+                            # Use validation dataset and not the orignal training dataset (here calle original_dataset)
+                            batch_play_ids = dataloader_val.bucket_loaders[0].dataset.batch_play_ids  # list of play indices in the batch
                             # Convert to tensor and move to accurate device
                             batch_play_ids = torch.tensor(batch_play_ids, device=device)
                             # Extract hidden state for batch
                             batch_hidden_state = hidden_state_val[batch_play_ids]  # (n_batch, n_layers, hidden_dim)
                             batch_hidden_state = batch_hidden_state.permute(1, 0, 2).contiguous()  # (layers, batch, hidden_dim)
-
+                            batch_hidden_state.to(device)
                             val_logits, hidden, _ = model(val_inputs, batch_hidden_state, hidden_pos=0)
 
                             # Detach and store back to global val hidden state
@@ -297,7 +301,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
 
                 print(f"[Step {global_step}] Train Loss: {train_loss_avg:.4f} | Online Val Loss: {val_loss_avg:.4f} | Train Acc: {train_acc_avg:.4f} | Val Acc: {val_acc_avg:.4f}")
 
-                with open(log_file, 'a') as f:
+                with open(log_file_path, 'a') as f:
                     f.write(f"{epoch},{global_step},{train_loss_avg:.6f},{val_loss_avg:.6f},{train_acc_avg:.6f},{val_acc_avg:.6f}\n")
 
                 # Put model back into train mode 
@@ -309,19 +313,20 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
         model.eval()
         val_loss_total = 0.0
         val_samples = 0
+        val_correct = 0
 
         # No gradients needed for evaluation here haha
         with torch.no_grad():
             for val_inputs, val_targets in dataloader_val:
                 val_inputs, val_targets = val_inputs.to(device), val_targets.to(device)
                 if persistent_hidden_state:
-                    batch_play_ids = dataloader_val.dataset.batch_play_ids  # list of play indices in the batch
+                    batch_play_ids = dataloader_val.bucket_loaders[0].dataset.batch_play_ids  # list of play indices in the batch
                     # Convert to tensor and move to accurate device
                     batch_play_ids = torch.tensor(batch_play_ids, device=device)
                     # Extract hidden state for batch
                     batch_hidden_state = hidden_state_val[batch_play_ids]  # (n_batch, n_layers, hidden_dim)
                     batch_hidden_state = batch_hidden_state.permute(1, 0, 2).contiguous()  # (layers, batch, hidden_dim)
-
+                    batch_hidden_state.to(device)
                     val_logits, hidden, _ = model(val_inputs, batch_hidden_state, hidden_pos=0)
 
                     # Detach and store back to global val hidden state
@@ -353,7 +358,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
         history['train_acc'].append((global_step, train_acc_avg))
         history['val_acc'].append((global_step, val_acc_avg))
 
-        with open(log_file, 'a') as f:
+        with open(log_file_path, 'a') as f:
             f.write(f"{epoch},{global_step},{train_loss_avg:.6f},{val_loss_avg:.6f},{train_acc_avg:.6f},{val_acc_avg:.6f}\n")
 
         print(f"[Epoch {epoch}] Train Loss: {train_loss_avg:.4f} | Val Loss: {val_loss_avg:.4f} | Train Acc: {train_acc_avg:.4f} | Val Acc: {val_acc_avg:.4f}")
@@ -384,6 +389,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
 
     print("Training finished.")
     # Close writer
+    writer.flush()
     writer.close()
     return history
 
