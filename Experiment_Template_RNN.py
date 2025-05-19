@@ -1,4 +1,5 @@
 import torch
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from Utils.data_handling import create_DataLoader, Vocabulary
 from RNN.RNN import RNN, train_rnn
 from LSTM.LSTM import LSTM, train_lstm
@@ -39,7 +40,8 @@ def performExperimentRNN():
 
 
     #--- Nuisance parameters ---#
-    learning_rate = 0.001 
+    init_lr = 0.001  # initial learning rate at beginning of the decay
+    min_lr = 0.0001 # minimum learning rate at the end of the decay
 
     #--- other paratemers ---#
     save = False # Save or not save the model 
@@ -57,6 +59,9 @@ def performExperimentRNN():
     test_file = os.path.join(current_dir, 'Data', 'test_shakespeare_full_corpus.txt')
     test_file = os.path.abspath(training_file)  # resolves to full path
 
+    # Set up experiment folder
+    experiment_dir = './Baseline_RNN'
+    log_file = 'training_log_BaselineRNN.txt'
     # ==================== RANDOM FIXING ==================== #
     # Reproducibility
     # Read a bit more here -- https://pytorch.org/docs/stable/notes/randomness.html
@@ -67,6 +72,7 @@ def performExperimentRNN():
 
 
     # ==================== DATA PREP ==================== #
+
     if persistent_hidden_state:
         advanced_batching = True
     else:
@@ -76,6 +82,12 @@ def performExperimentRNN():
                       seq_Length=seq_length, shuffle=shuffle, stride=stride,
                       level=tokenization_level,tokenization=tokenization_type,
                       vocab=None,record_tokens=True,advanced_batching=advanced_batching,boundaries=None, 
+                      traverse='once')
+    
+    val_dataloader, val_dataset, vocab = create_DataLoader(filename=val_file, batch_size=batch_size, 
+                      seq_Length=seq_length, shuffle=shuffle, stride=stride,
+                      level=tokenization_level,tokenization=tokenization_type,
+                      vocab=vocab,record_tokens=False, advanced_batching=advanced_batching,boundaries=None, 
                       traverse='once')
     
     # Note if it works correctly the dataset will contain the correct hidden states 
@@ -110,17 +122,31 @@ def performExperimentRNN():
 
     model = RNN(vocab_size=vocab_size, embedding_dim=embedding_dim, 
                 hidden_size=dim_hidden, output_size=vocab_size, num_layers=n_layers, 
-                activation_function=activation_func, dropout=dropout, 
-                use_pretrained_embedding=True, pretrained_weights=embedding)
+                activation_function=activation_func, dropout_rate=dropout, 
+                use_pretrained_embedding=True, pretrained_weights=embedding, persistent_hidden_state=True)
     
-    # model.to(device) # NOT NEEDED is done in train_rnn
-    train_rnn(model, train_dataloader, optimizer, device=device, num_epochs=n_epochs, print_every=100)
-
     # Create optimizer
     if optimizer_algo == 'ADAM':
-        torch.optim.Adam()
+        optimizer = torch.optim.Adam(model.parameters(), lr=init_lr)
     elif optimizer_algo == 'SGD':
-        torch.optim.SGD()
+        optimizer = torch.optim.SGD(model.parameters(), lr=init_lr)
+
+    # Create the scheduler
+    # Estimate how many update steps there are. NOTE: This is an upper bound as we set drop_last to true, the likely update steps will be shorter
+    total_update_steps = n_epochs*train_dataset.n_samples
+    if learning_rate_decay == 'cosine':
+        scheduler = CosineAnnealingLR(optimizer, T_max=total_update_steps, eta_min=min_lr)
+    elif learning_rate_decay == 'lin-decay':
+        raise NotImplementedError('Linear decay is not implemented yet.')
+    
+    
+    # model.to(device) # NOT NEEDED is done in train_rnn
+    history = train_rnn(model, train_dataloader, val_dataloader, optimizer, persistent_hidden_state=True, hidden_state=hidden_states, hidden_state_val=hidden_states_val,
+               device=device, num_epochs=n_epochs, print_every=100, val_every_n_steps=500, scheduler=scheduler, experiment_dir=experiment_dir, log_file=log_file, 
+               trial=1)
+
+    
+    
 
     # ==================== EVALUATION ==================== #
     
