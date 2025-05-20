@@ -69,7 +69,10 @@ def performExperimentRNN(dim_hidden = 256, n_layers= 2, tokenization_level='char
 
     # Set up embeddings folder
     if embedding_type == 'glove':
-        embedding_file = os.path.join(current_dir, 'Data', 'Glove_vectors.txt')
+        if tokenization_type == 'BPE':
+            embedding_file = os.path.join(current_dir, 'Data', 'Glove_vectors_BPE.txt')
+        else:
+            embedding_file = os.path.join(current_dir, 'Data', 'Glove_vectors.txt')
     # ==================== RANDOM FIXING ==================== #
     # Reproducibility
     # Read a bit more here -- https://pytorch.org/docs/stable/notes/randomness.html
@@ -162,4 +165,4 @@ def performExperimentRNN(dim_hidden = 256, n_layers= 2, tokenization_level='char
 
 
 if __name__== '__main__':
-    performExperimentRNN(tokenization_level='word', embedding_type='glove')
+    performExperimentRNN(tokenization_level='word', embedding_type='glove', fine_tune_embedding=True, tokenization_type='BPE')
