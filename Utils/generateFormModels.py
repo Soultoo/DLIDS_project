@@ -6,7 +6,7 @@ from transformers import GPT2Tokenizer
 from Utils.data_handling import Vocabulary, ShakespeareTokenizer, CharTokenizer
 
 
-def generate_text(model, start_str, length, vocab: Vocabulary, device='cpu', temperature=1.0, tokenization_level = 'char', tokenization_type='nltk_shakespeare'):
+def generate_text(model, start_str, length, vocab: Vocabulary, device='cpu', temperature=1.0, tokenization_level = 'char', tokenization_type='nltk_shakespeare', sampling_strategy='temperature', top_p=0.5):
     model.eval()
     model.to(device)
 
@@ -81,7 +81,37 @@ def generate_text(model, start_str, length, vocab: Vocabulary, device='cpu', tem
         # hidden_next = hidden  # (n_layers, 1, hidden_dim)
 
         # Sample from the logits
-        probs = torch.softmax(logits / temperature, dim=-1)
+        logits_next = logits[-1, :]  # (vocab_size)
+
+        if sampling_strategy == 'nucleus':
+            # Apply softmax
+            probs = torch.softmax(logits_next, dim=-1)  # (vocab_size)
+
+            # Sort probs and get cumulative sum
+            sorted_probs, sorted_indices = torch.sort(probs, descending=True)
+            cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+
+            # Mask out tokens with cumulative prob > top_p
+            sorted_mask = cumulative_probs > top_p
+            # Shift mask to include first token > top_p
+            sorted_mask[..., 1:] = sorted_mask[..., :-1].clone() #use clone to avoid in place operations
+            sorted_mask[..., 0] = 0
+
+            # Set probabilities of masked tokens to 0
+            sorted_probs[sorted_mask] = 0.0
+
+            # Renormalize
+            sorted_probs = sorted_probs / sorted_probs.sum()
+
+            # Sample from the filtered distribution
+            next_token = torch.multinomial(sorted_probs, num_samples=1)
+            next_id = sorted_indices[next_token].item()
+
+        else:  # default: temperature sampling
+            probs = torch.softmax(logits_next / temperature, dim=-1)
+            next_id = torch.multinomial(probs, num_samples=1).item()
+
+        probs = torch.softmax(logits_next / temperature, dim=-1)
         next_id = torch.multinomial(probs, num_samples=1).item()
         generated_ids.append(next_id)
 
