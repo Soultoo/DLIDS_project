@@ -119,6 +119,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
 
     # Initialize globale values
     best_val_loss = float('inf')
+    best_epoch = 0
     global_step = 0  # Collect update steps over all epochs for logging
     # Create history dicts to visualize the loss curves later
     history = {
@@ -382,6 +383,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
         # Save best model if applicable
         if val_loss_avg < best_val_loss:
             best_val_loss = val_loss_avg
+            best_epoch = epoch
             torch.save(full_state, os.path.join(checkpoint_dir, f"model_best_epoch_{epoch}.pt"))
 
         if scheduler is not None:
@@ -394,7 +396,7 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
     writer.close()
 
     # Load best model and return it
-    checkpoint = torch.load(os.path.join(checkpoint_dir, f"model_best_epoch_{epoch}.pt"), map_location='cuda')
+    checkpoint = torch.load(os.path.join(checkpoint_dir, f"model_best_epoch_{best_epoch}.pt"), map_location='cuda')
     model.load_state_dict(checkpoint['model_state_dict'])
 
     return history, model
