@@ -60,7 +60,10 @@ def performExperimentLSTM(dim_hidden=256, n_layers=2, tokenization_level='char',
 
     # Set up embeddings folder
     if embedding_type == 'glove':
-        embedding_file = os.path.join(current_dir, 'Data', 'Glove_vectors.txt')
+        if tokenization_type == 'BPE':
+            embedding_file = os.path.join(current_dir, 'Data', 'Glove_vectors_BPE.txt')
+        else:
+            embedding_file = os.path.join(current_dir, 'Data', 'Glove_vectors.txt')
 
     # ==================== RANDOM FIXING ==================== #
     # Reproducibility
@@ -76,13 +79,13 @@ def performExperimentLSTM(dim_hidden=256, n_layers=2, tokenization_level='char',
     else:
         advanced_batching = False
 
-    train_dataloader, dataset, vocab = create_DataLoader(filename=training_file, batch_size=batch_size,
+    train_dataloader, train_dataset, vocab = create_DataLoader(filename=training_file, batch_size=batch_size,
                       seq_Length=seq_length, shuffle=shuffle, stride=stride,
                       level=tokenization_level, tokenization=tokenization_type,
                       vocab=None, record_tokens=True, advanced_batching=advanced_batching, boundaries=None,
                       traverse='once')
 
-    val_dataloader, _, _ = create_DataLoader(filename=val_file, batch_size=batch_size,
+    val_dataloader, val_dataset, vocab = create_DataLoader(filename=val_file, batch_size=batch_size,
                       seq_Length=seq_length, shuffle=False, stride=stride,
                       level=tokenization_level, tokenization=tokenization_type,
                       vocab=vocab, record_tokens=False, advanced_batching=advanced_batching, boundaries=None,
@@ -93,8 +96,10 @@ def performExperimentLSTM(dim_hidden=256, n_layers=2, tokenization_level='char',
 
     # Prepare the hidden states:
     if persistent_hidden_state:
-        hidden_states = torch.zeros(dataset.n_plays, n_layers, dim_hidden) # size: (n_plays, n_layers, hidden_dim)
-        hidden_states_val = torch.zeros(dataset.n_plays, n_layers, dim_hidden) # size: (n_plays, n_layers, hidden_dim)
+        hidden_states = torch.zeros(train_dataset.n_plays, n_layers, dim_hidden) # size: (n_plays, n_layers, hidden_dim)
+        hidden_states_val = torch.zeros(val_dataset.n_plays, n_layers, dim_hidden) # size: (n_plays, n_layers, hidden_dim)
+        cell_states = torch.zeros(train_dataset.n_plays, n_layers, dim_hidden) # size: (n_plays, n_layers, hidden_dim)
+        cell_states_val = torch.zeros(val_dataset.n_plays, n_layers, dim_hidden) # size: (n_plays, n_layers, hidden_dim)
 
     # Extract vocabulary size:
     vocab_size = vocab.vocab_size
@@ -131,7 +136,7 @@ def performExperimentLSTM(dim_hidden=256, n_layers=2, tokenization_level='char',
         raise NotImplementedError('Linear decay is not implemented yet.')
 
     # Train the model
-    history, model = train_lstm(model, train_dataloader, val_dataloader, optimizer, persistent_hidden_state=True, hidden_state=hidden_states, hidden_state_val=hidden_states_val, 
+    history, model = train_lstm(model, train_dataloader, val_dataloader, optimizer, persistent_hidden_state=True, hidden_state=hidden_states, hidden_state_val=hidden_states_val, cell_state=cell_states, cell_state_val=cell_states_val,
                 device=device, num_epochs=n_epochs, print_every=100, val_every_n_steps=500, scheduler=scheduler, experiment_dir=experiment_dir, log_file=log_file, 
                 trial=trial)
 
@@ -139,4 +144,5 @@ def performExperimentLSTM(dim_hidden=256, n_layers=2, tokenization_level='char',
 
 
 if __name__ == '__main__':
+    performExperimentLSTM(tokenization_level='word', embedding_type='glove', fine_tune_embedding=True, tokenization_type='BPE')
     performExperimentLSTM(tokenization_level='char', embedding_type='one-hot')

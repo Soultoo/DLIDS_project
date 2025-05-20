@@ -91,6 +91,10 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
         # Move hidden_state to appropriate device
         hidden_state = hidden_state.to(device)
         hidden_state_val = hidden_state_val.to(device)
+
+        # Save original hidden state to reset after each epoch
+        hidden_state_og = hidden_state.clone().to(device)
+        hidden_state_val_og = hidden_state_val.clone().to(device)
         same_dataset = True
         # Set the first dataset as the reference dataset
         original_dataset = dataloader_train.bucket_loaders[0].dataset
@@ -189,6 +193,9 @@ def train_rnn(model, dataloader_train, dataloader_val, optimizer, persistent_hid
         total_samples = 0 # Used to average the total_loss above
         total_correct = 0 # Used for accuracy calculations
 
+        # Reset hidden state
+        hidden_state = hidden_state_og.clone().to(device)
+        hidden_state_val = hidden_state_val_og.clone().to(device)
         for i, (inputs, targets) in enumerate(dataloader_train):
             
             batch_size = inputs.size(0)

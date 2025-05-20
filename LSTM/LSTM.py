@@ -34,47 +34,46 @@ class LSTM(nn.Module):
 
         self.fc = nn.Linear(hidden_size, output_size)
 
-    def forward(self, X, hidden=None, hidden_pos=-1):
-        '''Implements the forward pass of the model
+    def forward(self, X, hidden=None, cell=None):
+        '''Implements the forward pass of the model. NOTE DUE TO HOW THE LSTMs are implemented in Pytorch you can only use a stride of seq_lenght on it when you use persistent hidden states
         Inputs:
             X: (tensor) size (n_batch, seq_length) containing integers indices corresponding to tokens
             hidden: (tensor) size: (n_layers, n_batch, hidden_dim)
-            hidden_pos: (int) determines the hidden state that should be returned to the user,
-                needed to allow persistent hidden states with a stride < seq_length. Per default give the
-                last hidden state of the network over all layers, as needed for stride == seq_length
-                size (n_layers, n_batch, hidden_dim):'''
+            cell: (tensor) size: (n_layers, n_batch, hidden_dim), Cell state of the last sample:'''
         n_batch = X.shape[0]
         # Apply embedding
         X = self.embedding(X)  # dim: (n_batch, seq_length, embedding_dim)
 
         if self.persistent_hidden_state:
             hout_list = []
+            cout_list = []
             hidden_states1 = hidden[0].unsqueeze(0)  # dim (1,n_batch, hidden_dim)
-            output, (hn, cn) = self.lstm1(X, (hidden_states1, hidden_states1))  # output: (n_batch, seq_length, hidden_dim), hidden: (1, n_batch, hidden_dim)
-            hout1 = output[:, hidden_pos, :]  # dim: (n_batch,hidden_dim)
-            hout1 = hout1.unsqueeze(0)  # dim (1, n_batch, hidden_dim)
+            cell_states1 = cell[0].unsqueeze(0) # dim (1,n_batch, hidden_dim)
+            output, (hout1, cout1) = self.lstm1(X, (hidden_states1, cell_states1))  # output: (n_batch, seq_length, hidden_dim), hidden: (1, n_batch, hidden_dim)
             hout_list.append(hout1)
+            cout_list.append(cout1)
 
             for layer in range(1, self.n_layers):
                 # Retrieve hidden states for that layer
                 hidden_temp = hidden[layer].unsqueeze(0)  # dim (1,n_batch, hidden_dim)
+                cell_temp = cell[layer].unsqueeze(0) # dim (1,n_batch, hidden_dim)
                 # Apply dropout
                 output_temp = self.dropout(output)  # dim (n_batch, seq_length, hidden_dim)
                 # Apply LSTM
-                output_temp, (hn, cn) = self.lstm_subsequent(output_temp, (hidden_temp, hidden_temp))  # output: (n_batch, seq_length, hidden_dim), hidden: (n_layers, n_batch, hidden_dim)
-                hout_temp = output_temp[:, hidden_pos, :]  # dim: (n_batch,hidden_dim)
-                hout_temp = hout_temp.unsqueeze(0)  # dim (1, n_batch, hidden_dim)
+                output_temp, (hout_temp, cout_temp) = self.lstm_subsequent(output_temp, (hidden_temp, cell_temp))  # output: (n_batch, seq_length, hidden_dim), hidden: (n_layers, n_batch, hidden_dim)
                 hout_list.append(hout_temp)
+                cout_list.append(cout_temp)
 
             logits = self.fc(output_temp)  # (n_batch, seq_length, vocab_size)
             hidden_out = torch.cat(hout_list, dim=0)  # shape: (n_layers, n_batch, hidden_dim)
-            return logits, hidden_out, output_temp  # (n_batch, seq_length, vocab_size), (n_layers, n_batch, hidden_dim), (n_batch, seq_length, hidden_dim)
+            cell_out = torch.cat(cout_list, dim=0) # shape: (n_layers, n_batch, hidden_dim)
+            return logits, hidden_out, cell_out, output_temp  # (n_batch, seq_length, vocab_size), (n_layers, n_batch, hidden_dim), (n_batch, seq_length, hidden_dim)
         else:
-            output, hidden = self.lstm(X, hidden)  # output: (n_batch, seq_length, hidden_dim), hidden: (n_layers, n_batch, hidden_dim)
+            output, (hidden, cell) = self.lstm(X, hidden)  # output: (n_batch, seq_length, hidden_dim), hidden: (n_layers, n_batch, hidden_dim)
             logits = self.fc(output)  # (n_batch, seq_length, vocab_size)
-            return logits, hidden, output
+            return logits, hidden, cell, output
 
-def train_lstm(model, dataloader_train, dataloader_val, optimizer, persistent_hidden_state=True, hidden_state=None, hidden_state_val=None, device='cpu', num_epochs=10,
+def train_lstm(model, dataloader_train, dataloader_val, optimizer, persistent_hidden_state=True, hidden_state=None, cell_state=None, hidden_state_val=None, cell_state_val=None, device='cpu', num_epochs=10,
               print_every=100, val_every_n_steps=500, scheduler=None, experiment_dir='./Baseline_LSTM', 
               log_file='training_log.txt', trial=1, resume_training_epoch=0, resume_checkpoint_file=None):
 
@@ -82,9 +81,18 @@ def train_lstm(model, dataloader_train, dataloader_val, optimizer, persistent_hi
     # Little sanity checks, i.e. if we use a persistent hidden state the dataset
     # across the buckets must be the same and we extract information from them and read out data
     if persistent_hidden_state:
-        # Move hidden_state to appropriate device
+        # Move hidden_state and cell_state to appropriate device
         hidden_state = hidden_state.to(device)
         hidden_state_val = hidden_state_val.to(device)
+        cell_state = cell_state.to(device)
+        cell_state_val = cell_state_val.to(device)
+
+        # Save original hidden and cell state to reset after each epoch
+        hidden_state_og = hidden_state.clone().to(device)
+        hidden_state_val_og = hidden_state_val.clone().to(device)
+        cell_state_og = cell_state.clone().to(device)
+        cell_state_val_og = cell_state_val.clone().to(device)
+
         same_dataset = True
         # Set the first dataset as the reference dataset
         original_dataset = dataloader_train.bucket_loaders[0].dataset
@@ -93,8 +101,12 @@ def train_lstm(model, dataloader_train, dataloader_val, optimizer, persistent_hi
                 same_dataset = False
                 break
         # Good read out the values needed for a persistent hidden state
+        # NOTE: Not needed right now, as we can only ever use the last hidden and cell state of the LSTM, 
+        # maybe in the future, recode the LSTM so that it works with arbitrary strides and then you need this again 
+        # see RNN for how it works
         if same_dataset:
-            hidden_pos = original_dataset.stride - 1
+            pass
+        #     hidden_pos = original_dataset.stride - 1
         else:
             raise ValueError("You must specify a dataloader, which has the same dataset for all buckets if you use a persistent hidden state. You most likely have attempted to use UnifiedBucketLoader, BucketedSampler or any other internal Bucket function explicitly. Use create_dataset with persistent_hidden_state set to true instead.")
     if persistent_hidden_state and (hidden_state is None or hidden_state_val is None):
@@ -113,6 +125,7 @@ def train_lstm(model, dataloader_train, dataloader_val, optimizer, persistent_hi
 
     # Initialize global values
     best_val_loss = float('inf')
+    best_epoch = 0
     global_step = 0  # Collect update steps over all epochs for logging
     # Create history dicts to visualize the loss curves later
     history = {
@@ -175,6 +188,11 @@ def train_lstm(model, dataloader_train, dataloader_val, optimizer, persistent_hi
         total_samples = 0  # Used to average the total_loss above
         total_correct = 0  # Used for accuracy calculations
 
+        # Reset hidden and cell state
+        hidden_state = hidden_state_og.clone().to(device)
+        cell_state = cell_state_og.clone().to(device)
+        hidden_state_val = hidden_state_val_og.clone().to(device)
+        cell_state_val = cell_state_val_og.clone().to(device)
         for i, (inputs, targets) in enumerate(dataloader_train):
             batch_size = inputs.size(0)
             inputs, targets = inputs.to(device), targets.to(device)  # input: (n_batch, seq_length), (n_batch, seq_length)
@@ -185,12 +203,16 @@ def train_lstm(model, dataloader_train, dataloader_val, optimizer, persistent_hi
                 # Convert to tensor and move to accurate device
                 batch_play_ids = torch.tensor(batch_play_ids, device=hidden_state.device)
                 batch_hidden_state = hidden_state[batch_play_ids]  # dim: (n_batch, n_layers, hidden_dim)
+                batch_cell_state = cell_state[batch_play_ids] #dim: (n_batch, n_layers, hidden_dim)
                 # Reshape to correct shape of (n_layers, n_batch, hidden_dim)
                 batch_hidden_state = batch_hidden_state.permute(1, 0, 2).contiguous()  # dim: (n_layers, n_batch, hidden_dim)
+                batch_cell_state = batch_cell_state.permute(1, 0, 2).contiguous()  # dim: (n_layers, n_batch, hidden_dim)
                 # logits: (n_batch, seq_length, vocab_size), hidden: (n_layers, n_batch, hidden_dim), output: (n_batch, seq_length, hidden_dim)
-                logits, hidden, output = model(inputs, batch_hidden_state, hidden_pos)
+                logits, hidden, cell, output = model(inputs, batch_hidden_state, batch_cell_state)
                 # Update the hidden_state vector
                 hidden_state[batch_play_ids] = hidden.detach().permute(1, 0, 2)  # Make sure that hidden does not carry any gradients to save it => Use detach
+                # Update the cell_state vector
+                cell_state[batch_play_ids] = cell.detach().permute(1, 0, 2)  # Make sure that hidden does not carry any gradients to save it => Use detach
             else:
                 logits, _, _ = model(inputs)  # logits: (n_batch, seq_length, vocab_size), output: (n_batch, seq_length, hidden_dim), hidden: (n_layers, n_batch, hidden_dim)
 
@@ -250,11 +272,15 @@ def train_lstm(model, dataloader_train, dataloader_val, optimizer, persistent_hi
                             # Extract hidden state for batch
                             batch_hidden_state = hidden_state_val[batch_play_ids]  # (n_batch, n_layers, hidden_dim)
                             batch_hidden_state = batch_hidden_state.permute(1, 0, 2).contiguous()  # (layers, batch, hidden_dim)
+                            batch_cell_state = cell_state_val[batch_play_ids] #dim: (n_batch, n_layers, hidden_dim)
+                            batch_cell_state = batch_cell_state.permute(1, 0, 2).contiguous()  # (layers, batch, hidden_dim)
+                            
                             # batch_hidden_state = batch_hidden_state.to(device)
-                            val_logits, hidden, _ = model(val_inputs, batch_hidden_state, hidden_pos=0)
+                            val_logits, hidden, cell, output = model(val_inputs, batch_hidden_state, batch_cell_state)
 
                             # Detach and store back to global val hidden state
                             hidden_state_val[batch_play_ids] = hidden.detach().permute(1, 0, 2)
+                            cell_state_val[batch_play_ids] = cell.detach().permute(1, 0, 2)
                         else:
                             val_logits, _, _ = model(val_inputs)
 
@@ -311,13 +337,17 @@ def train_lstm(model, dataloader_train, dataloader_val, optimizer, persistent_hi
                     # Extract hidden state for batch
                     batch_hidden_state = hidden_state_val[batch_play_ids]  # (n_batch, n_layers, hidden_dim)
                     batch_hidden_state = batch_hidden_state.permute(1, 0, 2).contiguous()  # (layers, batch, hidden_dim)
+                    batch_cell_state = cell_state_val[batch_play_ids] #dim: (n_batch, n_layers, hidden_dim)
+                    batch_cell_state = batch_cell_state.permute(1, 0, 2).contiguous()  # (layers, batch, hidden_dim)   
                     # batch_hidden_state.to(device)
-                    val_logits, hidden, _ = model(val_inputs, batch_hidden_state, hidden_pos=0)
+                    val_logits, hidden, cell, output = model(val_inputs, batch_hidden_state, batch_cell_state)
 
                     # Detach and store back to global val hidden state
                     hidden_state_val[batch_play_ids] = hidden.detach().permute(1, 0, 2)
+                    cell_state_val[batch_play_ids] = cell.detach().permute(1, 0, 2)
                 else:
                     val_logits, _, _ = model(val_inputs)
+                
                 val_loss = criterion(val_logits.reshape(-1, val_logits.shape[2]), val_targets.reshape(-1))
                 val_loss_total += val_loss.item() * val_inputs.size(0)
                 # Log accuracy too
@@ -366,7 +396,8 @@ def train_lstm(model, dataloader_train, dataloader_val, optimizer, persistent_hi
         # Save best model if applicable
         if val_loss_avg < best_val_loss:
             best_val_loss = val_loss_avg
-            torch.save(full_state, os.path.join(checkpoint_dir, f"model_best_epoch_{epoch}.pt"))
+            best_epoch = epoch
+            torch.save(full_state, os.path.join(checkpoint_dir, f"model_best_epoch_{best_epoch}.pt"))
 
         if scheduler is not None:
             scheduler.step()
