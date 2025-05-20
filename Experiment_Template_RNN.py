@@ -1,6 +1,7 @@
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from Utils.data_handling import create_DataLoader, Vocabulary
+from Utils.embeddings_Loader import load_glove_embeddings
 from RNN.RNN import RNN, train_rnn
 from LSTM.LSTM import LSTM, train_lstm
 import random
@@ -13,7 +14,7 @@ import os
 
 
 
-def performExperimentRNN(dim_hidden = 256, n_layers= 2, tokenization_level='char', embedding_type ='one-hot', 
+def performExperimentRNN(dim_hidden = 256, n_layers= 2, tokenization_level='char',tokenization_type='nltk_shakespeare', embedding_type ='one-hot', 
                          fine_tune_embedding = False, seq_length = 50, init_lr= 0.001, min_lr = 0.0001, 
                          trial=1, experiment_dir = './Baseline_RNN', log_file = 'training_log_BaselineRNN.txt'):
     # ================ Hyper-parameters ================ #
@@ -26,11 +27,11 @@ def performExperimentRNN(dim_hidden = 256, n_layers= 2, tokenization_level='char
     persistent_hidden_state = True # Stays fixed for all experiments
     stride = seq_length # Stays fixed for all experiments
     traverse = 'once' # Stays fixed for all experiments, as recommended in data_handling documentation
-    embedding_type = embedding_type # or 'GloVe'
+    embedding_type = embedding_type # or 'glove'
     fine_tune_embedding = fine_tune_embedding
     embedding_dim = None # Is fixed through embedding type later, will play a role if we train embedding layer OR use prettrained embeddings
     tokenization_level = tokenization_level # could alternatively be 'word' (only applicable for 2nd experiment)
-    tokenization_type = None # if level = 'word' => choose that to be 'nltk_shakespeare' (or later BPE)
+    tokenization_type = tokenization_type # if level = 'word' => choose that to be 'nltk_shakespeare' (or later BPE)
     
     learning_rate_decay = 'cosine'
 
@@ -63,8 +64,12 @@ def performExperimentRNN(dim_hidden = 256, n_layers= 2, tokenization_level='char
     test_file = os.path.abspath(training_file)  # resolves to full path
 
     # Set up experiment folder
-    experiment_dir = './Baseline_RNN'
-    log_file = 'training_log_BaselineRNN.txt'
+    experiment_dir = experiment_dir
+    log_file = log_file
+
+    # Set up embeddings folder
+    if embedding_type == 'glove':
+        embedding_file = os.path.join(current_dir, 'Data', 'Glove_vectors.txt')
     # ==================== RANDOM FIXING ==================== #
     # Reproducibility
     # Read a bit more here -- https://pytorch.org/docs/stable/notes/randomness.html
@@ -109,10 +114,10 @@ def performExperimentRNN(dim_hidden = 256, n_layers= 2, tokenization_level='char
         # Create one_hot embedding
         embedding = torch.eye(vocab_size)
         embedding_dim = vocab_size
-    elif embedding_type == 'GloVe':
+    elif embedding_type == 'glove':
         # TODO: LOAD GLOVE EMBEDDINGS
-        embedding = torch.zeros((vocab_size, embedding_dim))
-        raise NotImplementedError('GloVe Embeddings are missing so far')
+        # embedding = torch.zeros(vocab_size, embedding_dim)
+        embedding_dim, embedding = load_glove_embeddings(embedding_file=embedding_file, vocab=vocab)
     else:
         raise NotImplementedError('Invalid embedding_type given')
     
@@ -157,4 +162,4 @@ def performExperimentRNN(dim_hidden = 256, n_layers= 2, tokenization_level='char
 
 
 if __name__== '__main__':
-    performExperimentRNN()
+    performExperimentRNN(tokenization_level='word', embedding_type='glove')
