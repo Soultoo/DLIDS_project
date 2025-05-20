@@ -1,25 +1,29 @@
 import torch
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from Utils.data_handling import create_DataLoader, Vocabulary
-from LSTM.LSTM import LSTM, train_lstm, generate_text
-from Utils.metrics import compute_bleu_score
+from Utils.embeddings_Loader import load_glove_embeddings
+from LSTM.LSTM import LSTM, train_lstm
 import random
 import numpy as np
 import os
 
-def performExperimentLSTM():
+def performExperimentLSTM(dim_hidden=256, n_layers=2, tokenization_level='char', tokenization_type='nltk_shakespeare', embedding_type='one-hot',
+                          fine_tune_embedding=False, seq_length=50, init_lr=0.001, min_lr=0.0001,
+                          trial=1, experiment_dir='./Baseline_LSTM', log_file='training_log_BaselineLSTM.txt'):
     # ================ Hyper-parameters ================ #
     #--- Fixed Hyperparameters --- #
-    seq_length = 50 # Length of sequence fed into network
-    dim_hidden = 256 # Dimension of hidden nodes
-    n_layers = 2 # Number of layers in (stacked) LSTM
+    seq_length = seq_length # Length of sequence fed into network
+    dim_hidden = dim_hidden # Dimension of hidden nodes
+    n_layers = n_layers # Number of layers in (stacked) LSTM
     dropout = 0.15 # Determines dropout rate (might become nuisance parameter later)
     persistent_hidden_state = True # Stays fixed for all experiments
     stride = seq_length # Stays fixed for all experiments
     traverse = 'once' # Stays fixed for all experiments, as recommended in data_handling documentation
-    embedding_type = 'one-hot' # or 'GloVe'
+    embedding_type = embedding_type # or 'GloVe'
+    fine_tune_embedding = fine_tune_embedding
     embedding_dim = None # Is fixed through embedding type later, will play a role if we train embedding layer OR use prettrained embeddings
-    tokenization_level = 'char' # could alternatively be 'word' (only applicable for 2nd experiment)
-    tokenization_type = None # if level = 'word' => choose that to be 'nltk_shakespeare' (or later BPE)
+    tokenization_level = tokenization_level # could alternatively be 'word' (only applicable for 2nd experiment)
+    tokenization_type = tokenization_type # if level = 'word' => choose that to be 'nltk_shakespeare' (or later BPE)
 
     learning_rate_decay = 'cosine'
 
@@ -31,12 +35,12 @@ def performExperimentLSTM():
     #--- Scientific Parameters---#
 
     #--- Nuisance parameters ---#
-    learning_rate = 0.001
-    min_lr = 0.0001
+    init_lr = init_lr # initial learning rate at beginning of the decay
+    min_lr = min_lr # minimum learning rate at the end of the decay
 
     #--- other parameters ---#
     save = False # Save or not save the model
-    n_epochs = 1 # Is fixed over all experiments
+    n_epochs = 5 # Is fixed over all experiments
 
     # ====================== Data ===================== #
     current_dir = os.getcwd()
@@ -49,6 +53,14 @@ def performExperimentLSTM():
 
     test_file = os.path.join(current_dir, 'Data', 'test_shakespeare_full_corpus.txt')
     test_file = os.path.abspath(test_file)  # resolves to full path
+
+    # Set up experiment folder
+    experiment_dir = experiment_dir
+    log_file = log_file
+
+    # Set up embeddings folder
+    if embedding_type == 'glove':
+        embedding_file = os.path.join(current_dir, 'Data', 'Glove_vectors.txt')
 
     # ==================== RANDOM FIXING ==================== #
     # Reproducibility
@@ -76,12 +88,6 @@ def performExperimentLSTM():
                       vocab=vocab, record_tokens=False, advanced_batching=advanced_batching, boundaries=None,
                       traverse='once')
 
-    test_dataloader, _, _ = create_DataLoader(filename=test_file, batch_size=batch_size,
-                      seq_Length=seq_length, shuffle=False, stride=stride,
-                      level=tokenization_level, tokenization=tokenization_type,
-                      vocab=vocab, record_tokens=False, advanced_batching=advanced_batching, boundaries=None,
-                      traverse='once')
-
     # Note if it works correctly the dataset will contain the correct hidden states
     # for each play in each epoch. The play id is its index in data.samples
 
@@ -98,10 +104,9 @@ def performExperimentLSTM():
         # Create one_hot embedding
         embedding = torch.eye(vocab_size)
         embedding_dim = vocab_size
-    elif embedding_type == 'GloVe':
-        # TODO: LOAD GLOVE EMBEDDINGS
-        embedding = torch.zeros((vocab_size, embedding_dim))
-        raise NotImplementedError('GloVe Embeddings are missing so far')
+    elif embedding_type == 'glove':
+        #embedding = torch.zeros((vocab_size, embedding_dim))
+        embedding_dim, embedding = load_glove_embeddings(embedding_file=embedding_file, vocab=vocab)
     else:
         raise NotImplementedError('Invalid embedding_type given')
 
@@ -111,47 +116,27 @@ def performExperimentLSTM():
 
     model = LSTM(vocab_size=vocab_size, embedding_dim=embedding_dim,
                  hidden_size=dim_hidden, output_size=vocab_size, num_layers=n_layers,
-                 dropout=dropout, use_pretrained_embedding=True, pretrained_weights=embedding, persistent_hidden_state=persistent_hidden_state)
+                 dropout=dropout, use_pretrained_embedding=True, pretrained_weights=embedding, persistent_hidden_state=persistent_hidden_state, fine_tune_embedding=fine_tune_embedding)
 
     # Create optimizer
     if optimizer_algo == 'ADAM':
-        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        optimizer = torch.optim.Adam(model.parameters(), lr=init_lr)
     elif optimizer_algo == 'SGD':
-        optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+        optimizer = torch.optim.SGD(model.parameters(), lr=init_lr)
 
     # Create the scheduler
     if learning_rate_decay == 'cosine':
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=min_lr)
+        scheduler = CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=min_lr)
     elif learning_rate_decay == 'lin-decay':
         raise NotImplementedError('Linear decay is not implemented yet.')
-    else:
-        scheduler = None
 
     # Train the model
-    if persistent_hidden_state:
-        history, model = train_lstm(model, train_dataloader, val_dataloader, optimizer, persistent_hidden_state=persistent_hidden_state, hidden_state=hidden_states, hidden_state_val=hidden_states_val, device=device, num_epochs=n_epochs, print_every=100, scheduler=scheduler)
-    else:
-        history, model = train_lstm(model, train_dataloader, val_dataloader, optimizer, device=device, num_epochs=n_epochs, print_every=100, scheduler=scheduler)
+    history, model = train_lstm(model, train_dataloader, val_dataloader, optimizer, persistent_hidden_state=True, hidden_state=hidden_states, hidden_state_val=hidden_states_val, 
+                device=device, num_epochs=n_epochs, print_every=100, val_every_n_steps=500, scheduler=scheduler, experiment_dir=experiment_dir, log_file=log_file, 
+                trial=trial)
 
-    # ==================== TEXT GENERATION ==================== #
-    # Read the validation data
-    with open(val_file, 'r') as f:
-        validation_data = f.read()
+    return model, history, vocab, train_dataset, val_dataset
 
-    # Extract a snippet from the validation data
-    snippet = validation_data[:500]  # Extract the first 500 characters as a snippet
-    start_str = ' '.join(snippet.split()[:10])  # Use the first 10 words as the starting string
-    reference = ' '.join(snippet.split()[10:20])  # Use the next 10 words as the reference
-
-    generated_text = generate_text(model, start_str, length=100, vocab=vocab, device=device, temperature=0.7)
-    print(f"Generated Text: {generated_text}")
-
-    # ==================== EVALUATION ==================== #
-    # Compute BLEU score
-    hypotheses = [generated_text.split()]  # List of generated sequences
-    references = [[reference.split()]]  # List of lists of ground truth sequences
-    bleu_score = compute_bleu_score(hypotheses, references)
-    print(f"BLEU Score: {bleu_score:.4f}")
 
 if __name__ == '__main__':
-    performExperimentLSTM()
+    performExperimentLSTM(tokenization_level='char', embedding_type='one-hot')

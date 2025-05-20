@@ -4,7 +4,7 @@ from torch.utils.tensorboard import SummaryWriter
 import os
 
 class LSTM(nn.Module):
-    def __init__(self, vocab_size, embedding_dim, hidden_size, output_size, num_layers=1, dropout=0.0, use_pretrained_embedding=False, pretrained_weights=None, persistent_hidden_state=False):
+    def __init__(self, vocab_size, embedding_dim, hidden_size, output_size, num_layers=1, dropout=0.0, use_pretrained_embedding=False, pretrained_weights=None, persistent_hidden_state=False, fine_tune_embedding=False):
         super().__init__()
 
         self.vocab_size = vocab_size
@@ -18,11 +18,13 @@ class LSTM(nn.Module):
         if use_pretrained_embedding:
             if pretrained_weights is None:
                 raise ValueError("You must provide pretrained_weights if use_pretrained_embedding is True.")
-            self.embedding = nn.Embedding.from_pretrained(pretrained_weights, freeze=True)
+            if fine_tune_embedding:
+                self.embedding = nn.Embedding.from_pretrained(pretrained_weights, freeze=False) 
+            else:
+                self.embedding = nn.Embedding.from_pretrained(pretrained_weights, freeze=True) 
         else:
             self.embedding = nn.Embedding(vocab_size, embedding_dim)
 
-        # Split LSTM layers to handle persistent hidden states similarly to RNN
         if self.persistent_hidden_state:
             self.lstm1 = nn.LSTM(embedding_dim, hidden_size, num_layers=1, batch_first=True)
             self.dropout = nn.Dropout(dropout)
@@ -73,7 +75,8 @@ class LSTM(nn.Module):
             return logits, hidden, output
 
 def train_lstm(model, dataloader_train, dataloader_val, optimizer, persistent_hidden_state=True, hidden_state=None, hidden_state_val=None, device='cpu', num_epochs=10,
-              print_every=100, val_every_n_steps=500, scheduler=None, experiment_dir='./Baseline_LSTM', log_file='training_log.txt', trial=1, resume_training_epoch=0, resume_checkpoint_file=None):
+              print_every=100, val_every_n_steps=500, scheduler=None, experiment_dir='./Baseline_LSTM', 
+              log_file='training_log.txt', trial=1, resume_training_epoch=0, resume_checkpoint_file=None):
 
     ###--- Read out data and prepare data structures for logging -- ###
     # Little sanity checks, i.e. if we use a persistent hidden state the dataset
@@ -427,37 +430,3 @@ def evaluate_lstm(model, dataloader, device='cpu'):
     accuracy = total_correct / total_samples * 100
     print(f"Eval Loss: {avg_loss:.4f}, Accuracy: {accuracy:.2f}%")
     return avg_loss, accuracy
-
-def generate_text(model, start_str, length, vocab, device='cpu', temperature=1.0):
-    model.eval()
-    model.to(device)
-
-    # Ensure <UNK> token exists
-    unk_token = "<UNK>"
-    if unk_token not in vocab.token2id:
-        vocab.token2id[unk_token] = len(vocab.token2id)
-        vocab.id2token.append(unk_token)
-    unk_id = vocab.token2id[unk_token]
-
-    # Encode start string
-    input_ids = [vocab.token2id.get(token, unk_id) for token in start_str]
-    generated_ids = input_ids[:]
-
-    # Only use the last token as input to speed things up to change later but now for test
-    input_tensor = torch.tensor([[input_ids[-1]]], dtype=torch.long, device=device)
-    hidden = None
-
-    for _ in range(length):
-        with torch.no_grad():
-            logits, hidden, _ = model(input_tensor, hidden)
-
-        # Sample from the logits
-        probs = torch.softmax(logits[0, -1] / temperature, dim=-1)
-        next_id = torch.multinomial(probs, num_samples=1).item()
-        generated_ids.append(next_id)
-
-        # Next input is the last generated token
-        input_tensor = torch.tensor([[next_id]], dtype=torch.long, device=device)
-
-    # Decode the token IDs
-    return ''.join(vocab.id2token[i] if i < len(vocab.id2token) else unk_token for i in generated_ids)
