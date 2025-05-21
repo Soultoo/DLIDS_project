@@ -3,7 +3,9 @@ import os
 import nltk
 from transformers import GPT2Tokenizer
 
-from Utils.data_handling import Vocabulary, ShakespeareTokenizer, CharTokenizer
+from Utils.data_handling import Vocabulary, ShakespeareTokenizer, CharTokenizer 
+
+from Utils.data_handling import SPECIAL_TOKENS_BPE
 
 
 def generate_text(model, start_str, length, vocab: Vocabulary, device='cpu', temperature=1.0, tokenization_level = 'char', tokenization_type='nltk_shakespeare', sampling_strategy='temperature', top_p=0.5):
@@ -57,6 +59,16 @@ def generate_text(model, start_str, length, vocab: Vocabulary, device='cpu', tem
 
     input_ids = [vocab.lookup_id(token) for token in tokenized_start_str]
 
+    
+    generated_ids = sample_model(model, input_ids, length, sampling_strategy, top_p, temperature, device='cpu')
+    # Decode the token IDs
+    tokenization_vocab = 'char' if tokenization_level=='char' else tokenization_type
+    return vocab.transform_ID_2_String(generated_ids, tokenization=tokenization_vocab)
+    # return ''.join(vocab.id2token[i] if i < len(vocab.id2token) else unk_token for i in generated_ids)
+
+
+
+def sample_model(model, input_ids, length, sampling_strategy='nucleus', top_p=0.5, temperature=1, device='cpu'):
     # Get the inputs for the model
     input_tensor = torch.tensor(input_ids).unsqueeze(0) # dim: (1,seq_length)
     hidden = torch.zeros(model.n_layers_RNN,1,model.hidden_dim) #  (n_layers, 1, hidden_dim)
@@ -74,7 +86,7 @@ def generate_text(model, start_str, length, vocab: Vocabulary, device='cpu', tem
             # output: (1, seq_length, hidden_dim)
             logits, hidden, _ = model(input_tensor, hidden) 
         
-        logits.squeeze() # (seq_length, vocab_size)
+        logits = logits.squeeze(0) # (seq_length, vocab_size)
 
         #Only interested in next word => For that
         logits_next = logits[-1,:] # (vocab_size)
@@ -85,7 +97,7 @@ def generate_text(model, start_str, length, vocab: Vocabulary, device='cpu', tem
 
         if sampling_strategy == 'nucleus':
             # Apply softmax
-            probs = torch.softmax(logits_next, dim=-1)  # (vocab_size)
+            probs = torch.softmax(logits_next / temperature, dim=-1)  # (vocab_size)
 
             # Sort probs and get cumulative sum
             sorted_probs, sorted_indices = torch.sort(probs, descending=True)
@@ -111,15 +123,76 @@ def generate_text(model, start_str, length, vocab: Vocabulary, device='cpu', tem
             probs = torch.softmax(logits_next / temperature, dim=-1)
             next_id = torch.multinomial(probs, num_samples=1).item()
 
-        probs = torch.softmax(logits_next / temperature, dim=-1)
-        next_id = torch.multinomial(probs, num_samples=1).item()
-        generated_ids.append(next_id)
 
         # Next input is the last generated token
+        generated_ids.append(next_id)
 
         input_tensor = torch.tensor([[next_id]], dtype=torch.long, device=device)
 
-    # Decode the token IDs
-    tokenization_vocab = 'char' if tokenization_level=='char' else tokenization_type
-    return vocab.transform_ID_2_String(generated_ids, tokenization=tokenization_vocab)
-    # return ''.join(vocab.id2token[i] if i < len(vocab.id2token) else unk_token for i in generated_ids)
+    return generated_ids
+
+
+
+def sample_model_indefinitely(model, input_ids, end_id, max_length=2000, sampling_strategy='nucleus', top_p=0.5, temperature=1, device='cpu'):
+    # Get the inputs for the model
+    input_tensor = torch.tensor(input_ids).unsqueeze(0) # dim: (1,seq_length)
+    hidden = torch.zeros(model.n_layers_RNN,1,model.hidden_dim) #  (n_layers, 1, hidden_dim)
+
+
+    # Only use the last token as input to speed things up to change later but now for test
+    # input_tensor = torch.tensor([[input_ids[-1]]], dtype=torch.long, device=device)
+
+
+    generated_ids = []
+    for _ in range(max_length):
+        with torch.no_grad():
+            # logits: (1, seq_length, vocab_size), 
+            # hidden: (n_layers, 1, hidden_dim), 
+            # output: (1, seq_length, hidden_dim)
+            logits, hidden, _ = model(input_tensor, hidden) 
+        
+        logits.squeeze() # (seq_length, vocab_size)
+
+        #Only interested in next word => For that
+        logits_next = logits[-1,:] # (vocab_size)
+        # hidden_next = hidden  # (n_layers, 1, hidden_dim)
+
+        # Sample from the logits
+        logits_next = logits[-1, :]  # (vocab_size)
+
+        if sampling_strategy == 'nucleus':
+            # Apply softmax
+            probs = torch.softmax(logits_next / temperature, dim=-1)  # (vocab_size)
+
+            # Sort probs and get cumulative sum
+            sorted_probs, sorted_indices = torch.sort(probs, descending=True)
+            cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+
+            # Mask out tokens with cumulative prob > top_p
+            sorted_mask = cumulative_probs > top_p
+            # Shift mask to include first token > top_p
+            sorted_mask[..., 1:] = sorted_mask[..., :-1].clone() #use clone to avoid in place operations
+            sorted_mask[..., 0] = 0
+
+            # Set probabilities of masked tokens to 0
+            sorted_probs[sorted_mask] = 0.0
+
+            # Renormalize
+            sorted_probs = sorted_probs / sorted_probs.sum()
+
+            # Sample from the filtered distribution
+            next_token = torch.multinomial(sorted_probs, num_samples=1)
+            next_id = sorted_indices[next_token].item()
+
+        else:  # default: temperature sampling
+            probs = torch.softmax(logits_next / temperature, dim=-1)
+            next_id = torch.multinomial(probs, num_samples=1).item()
+        
+        # Check if model wants to end the string itself
+        if next_id == end_id:
+            break
+        # Next input is the last generated token
+        input_tensor = torch.tensor([[next_id]], dtype=torch.long, device=device)
+        generated_ids.append(next_id)
+
+    return generated_ids

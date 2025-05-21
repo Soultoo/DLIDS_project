@@ -1,22 +1,128 @@
+# from Utils.metrics import compute_bleu_score
+
+
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from Utils.data_handling import create_DataLoader, Vocabulary
-from Utils.embeddings_Loader import load_glove_embeddings
-from RNN.RNN import RNN, train_rnn
-from LSTM.LSTM import LSTM, train_lstm
+import os
+from torchtext.data.metrics import bleu_score
 import random
 import numpy as np
-import os
+
+from Utils.data_handling import create_DataLoader, Vocabulary
+from Utils.embeddings_Loader import load_glove_embeddings
+from RNN.RNN import RNN
+from LSTM.LSTM import LSTM
+from Utils.generateFormModels import sample_model_indefinitely, generate_text
+from Utils.shakespeare_parser import ENDTOKEN
+
+
+def eval_model_bleu(model_path, model_type='RNN', sampling_strategy='nucleus', top_p=0.5, temperature = 1):
+    '''Retrieves the BLEU score on the test sonnets, only works for advanced batching on!!'''
+    # get model and the data_structures
+    model, vocab, test_dataset = get_model(model_path, model_type)
+
+    # Right now i only want to evaluate Sonnets
+    sonnet_marker_id = vocab.lookup_id("<<SONNETS>>")
+    end_id = vocab.lookup_id(ENDTOKEN)
+
+    # NOTE: THIS LINE WOULD BREAK WITH BPE tokenization!!!
+    linebreak_marker_id = vocab.lookup_id("\n")
+
+    complete_sonnets = [] # complete sonnets
+    seeding_sonnets = [] # gather only the first line of each sonnet
+    reference_sonnets = [] # gather only the last lines of each sonnet
+    for play in test_dataset.samples:
+        # Check if its a sonnet
+        if play[0][0] == sonnet_marker_id:
+            # Gather the play into a 1D list
+            complete_play = [token for sample in play for token in sample]
+            complete_sonnets.append(complete_play)
+            # Find where the sonnet first line ends, which is always after the 5th linebreak
+            idx_start = nth_index(complete_play, linebreak_marker_id, 4)
+            seeding_play = complete_play[:idx_start+1] # to include linebreak
+            seeding_sonnets.append(seeding_play)
+            reference_play = complete_play[idx_start+2:]
+            reference_sonnets.append(reference_play)
+
+    # Turn the reference_sonnets list already back to strings
+    reference_sonnets_token = [[vocab.lookup_token(id) for id in sonnet] for sonnet in reference_sonnets]
+
+    # Put model in evaluation mode
+    model.eval()
+    # Check device
+    device = next(model.parameters()).device
+
+    bleu_scores_list = []
+    with torch.no_grad():
+        # For each sonnet get the id list of the generated sonnet
+        for i, sonnet_seed in enumerate(seeding_sonnets):
+            generated_ids_sonnet = sample_model_indefinitely(model, sonnet_seed, max_length=200, end_id=end_id, sampling_strategy=sampling_strategy, top_p=top_p, temperature=temperature, device=device)
+
+            # Turn the ids back into strings 
+            generated_token = [vocab.lookup_token(id) for id in generated_ids_sonnet]
+
+            # Calculate bleu_score
+            score = bleu_score(generated_token, reference_sonnets_token[i])
+            bleu_scores_list.append(score)
+    
+    # Calculate mean bleu score
+    bleu_avg = sum(bleu_scores_list) / len(bleu_scores_list)
+
+    return bleu_avg
+        
 
 
 
 
+def get_model(model_path, model_type='RNN'):
+    if model_type == 'RNN':
+        # Hardcode the model that was the best here, its not nice but it will do
+        # Trial 8, i.e. the model with h=384 and n_layers = 2 performed best
+        # Set experiment hyerparameters
+        trial = 8
+        # Define scientic parameter
+        dim_hidden = 384
+
+        # Define nuisance parameters
+        init_lr = 0.0008473975597328964
+
+        # seq_length = 50
+        seq_length = 95
+
+
+        # Define general parameters
+        min_lr = 0.001
+        experiment_dir = './Exp1_RNN'
+        log_file = 'training_log_Exp_1_RNN.txt'
+
+        model, vocab, test_dataset = reload_RNN(dim_hidden = dim_hidden, n_layers= 2, tokenization_level='char', embedding_type ='one-hot', 
+                         fine_tune_embedding = False, seq_length = seq_length, init_lr= init_lr, min_lr = min_lr, 
+                         trial=trial, experiment_dir = experiment_dir, log_file = log_file)
+        
+        
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        checkpoint = torch.load(model_path, map_location=device)
+        model.load_state_dict(checkpoint['model_state_dict'])
+    return model, vocab, test_dataset
 
 
 
-def performExperimentRNN(dim_hidden = 256, n_layers= 2, tokenization_level='char',tokenization_type='nltk_shakespeare', embedding_type ='one-hot', 
+
+def nth_index(lst, value, n):
+    count = 0
+    for i, x in enumerate(lst):
+        if x == value:
+            count += 1
+            if count == n:
+                return i
+    return -1  # or raise an exception if not found
+
+
+
+def reload_RNN(dim_hidden = 256, n_layers= 2, tokenization_level='char',tokenization_type='nltk_shakespeare', embedding_type ='one-hot', 
                          fine_tune_embedding = False, seq_length = 50, init_lr= 0.001, min_lr = 0.0001, 
                          trial=1, experiment_dir = './Baseline_RNN', log_file = 'training_log_BaselineRNN.txt'):
+    '''This funtion reloads the RNN, in its current form this function is the complete overkill, but I am too tired to clean that up...'''
     # ================ Hyper-parameters ================ #
     #--- Fixed Hyperparameters --- # 
     seq_length = seq_length # Length of sequence fed into network
@@ -100,6 +206,12 @@ def performExperimentRNN(dim_hidden = 256, n_layers= 2, tokenization_level='char
                       level=tokenization_level,tokenization=tokenization_type,
                       vocab=vocab,record_tokens=False, advanced_batching=advanced_batching,boundaries=None, 
                       traverse='once')
+
+    test_dataloader, test_dataset, vocab = create_DataLoader(filename=test_file, batch_size=batch_size, 
+                      seq_Length=seq_length, shuffle=shuffle, stride=stride,
+                      level=tokenization_level,tokenization=tokenization_type,
+                      vocab=vocab,record_tokens=False, advanced_batching=advanced_batching,boundaries=None, 
+                      traverse='once')
     
     # Note if it works correctly the dataset will contain the correct hidden states 
     # for each play in each epoch. The play id is its index in data.samples
@@ -150,19 +262,21 @@ def performExperimentRNN(dim_hidden = 256, n_layers= 2, tokenization_level='char
     elif learning_rate_decay == 'lin-decay':
         raise NotImplementedError('Linear decay is not implemented yet.')
     
-    
-    # model = model.to(device) # NOT NEEDED is done in train_rnn
-    history, model = train_rnn(model, train_dataloader, val_dataloader, optimizer, persistent_hidden_state=True, hidden_state=hidden_states, hidden_state_val=hidden_states_val,
-               device=device, num_epochs=n_epochs, print_every=100, val_every_n_steps=500, scheduler=scheduler, experiment_dir=experiment_dir, log_file=log_file, 
-               trial=trial)
-
-    
-    
-    return model, history, vocab, train_dataset, val_dataset
-    # ==================== EVALUATION ==================== #
-    
+    return model, vocab, test_dataset
 
 
 
-if __name__== '__main__':
-    performExperimentRNN(tokenization_level='word', embedding_type='glove', fine_tune_embedding=True, tokenization_type='BPE')
+
+
+if __name__ == '__main__':
+    model_path = 'Exp1_RNN/chekpoints/trial_8/model_best_epoch_4.pt'
+
+
+    model, vocab, test_dataset = get_model(model_path=model_path, model_type='RNN')
+
+    text = generate_text(model, start_str='<<SONNETS>>\n13\n\nO that you were your self, but love you are\n', length=2000,
+                         vocab=vocab,device='cpu',temperature=1,tokenization_level='char', tokenization_type='char', 
+                         sampling_strategy='temperature')
+    print(text)
+    eval_model_bleu(model_path=model_path, model_type='RNN')
+
