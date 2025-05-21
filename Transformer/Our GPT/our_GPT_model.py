@@ -50,6 +50,9 @@ class CausalSelfAttention(nn.Module):
     
     
     def forward(self, x):
+        #print('')
+        #print('x.size() (Note: In forward):')
+        #print(x.size())
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
         q = self.c_att_w_q(x)
         k = self.c_att_w_k(x)
@@ -116,17 +119,38 @@ class GPTConfig:
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
+    pretrained_wte: bool = False
+    finetune_wte: bool = False
 
 
 class GPT(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, predef_wte = None, from_checkpoint=False):
         super().__init__()
         assert config.vocab_size is not None # Require a vocab_size parameter
         assert config.block_size is not None #Require a block_size parameter 
+        
+        print('')
+        print('config.pretrained_wte (Note: Please be true):')
+        print(config.pretrained_wte)
+        
+        if (config.pretrained_wte and not from_checkpoint):
+            assert predef_wte is not None
+            wte_to_set = nn.Embedding.from_pretrained(predef_wte)
+            wte_to_set.weight.requires_grad = False # Default is no fine-tuning of wte
+            if config.finetune_wte:
+                print("Pre-trained weights will be fine-tuned")
+                wte_to_set.weight.requires_grad = True
+            
+        else:
+            wte_to_set = nn.Embedding(config.vocab_size, config.n_embd)
+        
         self.config = config
         
-        self.transformer = nn.ModuleDict(dict(
-            wte = nn.Embedding(config.vocab_size, config.n_embd),
+        
+        
+        
+        self.transformer = nn.ModuleDict(dict( ##tag #TODOb3a Typ wte = glove. Måste kolla så att alla dimensioner stämmer.
+            wte = wte_to_set,
             wpe = nn.Embedding(config.block_size, config.n_embd),
             drop = nn.Dropout(config.dropout),
             h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
@@ -151,6 +175,12 @@ class GPT(nn.Module):
                 
         # report number of parameters
         print("number of parameters: %.2fM" % (self.get_num_params()/1e6,))
+        for name, param in self.named_parameters():
+            print(name, param.numel())
+            print(param.size())
+        print('')
+        print('self.config.vocab_size (Note: Modellens vocab size?):')
+        print(self.config.vocab_size)
         
     def get_num_params(self, non_embedding=True):
         """

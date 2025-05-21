@@ -1,0 +1,97 @@
+{
+  "add_bos_token": false,
+  "add_prefix_space": false,
+  "added_tokens_decoder": {
+    "50256": {
+      "content": "<|endoftext|>",
+      "lstrip": false,
+      "normalized": true,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "50257": {
+      "content": "<<END>>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "50258": {
+      "content": "<<UNK>>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "50259": {
+      "content": "<<COMEDY>>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "50260": {
+      "content": "<<TRAGEDY>>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "50261": {
+      "content": "<<HISTORY>>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "50262": {
+      "content": "<<POETRY>>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "50263": {
+      "content": "<<SONNETS>>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    },
+    "50264": {
+      "content": "<<UNKNOWN_SECTION>>",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    }
+  },
+  "additional_special_tokens": [
+    "<<END>>",
+    "<<UNK>>",
+    "<<COMEDY>>",
+    "<<TRAGEDY>>",
+    "<<HISTORY>>",
+    "<<POETRY>>",
+    "<<SONNETS>>",
+    "<<UNKNOWN_SECTION>>"
+  ],
+  "bos_token": "<|endoftext|>",
+  "clean_up_tokenization_spaces": false,
+  "eos_token": "<|endoftext|>",
+  "errors": "replace",
+  "extra_special_tokens": {},
+  "model_max_length": 1024,
+  "pad_token": null,
+  "tokenizer_class": "GPT2Tokenizer",
+  "unk_token": "<|endoftext|>"
+}
