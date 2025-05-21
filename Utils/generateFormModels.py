@@ -151,7 +151,7 @@ def sample_model_indefinitely(model, input_ids, end_id, max_length=2000, samplin
             # output: (1, seq_length, hidden_dim)
             logits, hidden, _ = model(input_tensor, hidden) 
         
-        logits.squeeze() # (seq_length, vocab_size)
+        logits.squeeze(0) # (seq_length, vocab_size)
 
         #Only interested in next word => For that
         logits_next = logits[-1,:] # (vocab_size)
