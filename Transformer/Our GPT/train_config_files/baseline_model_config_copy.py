@@ -1,12 +1,12 @@
 trial = 8
 
-max_iters = 30000
+max_iters = 1000
 out_dir = 'baseline_model_checkpoints_our_loader-shakespeare'
-eval_interval = 10 # keep frequent because we'll overfit
-eval_iters = 2
-log_interval = 10 # don't print too too often
+eval_interval = 100 # keep frequent because we'll overfit
+eval_iters = 20
+log_interval = 20 # don't print too too often
 
-always_save_checkpoint = True ##tag #TODO6d5 Really we should not overwrite our checkpoint every time
+always_save_checkpoint = True 
 init_from = 'scratch' # 'scratch' or 'resume'
 
 wandb_log = False # override via command line if you like
@@ -19,7 +19,7 @@ level = 'char'
 tokenization = 'nltk_shakespeare'
 traverse = 'once'
 embedding_dim = None  # Will be set based on vocabulary size
-emb_dim_is_token_dim = True
+emb_dim_is_token_dim = True 
 
 # File paths
 #train_file = 'Data/train_shakespeare_full_corpus.txt' 
@@ -27,18 +27,18 @@ train_file = '../../Data/train_shakespeare_full_corpus.txt'
 #val_file = 'Data/val_shakespeare_full_corpus.txt'
 val_file = '../../Data/val_shakespeare_full_corpus.txt'
 
-dataset = '' #We don't want stuff from other dataset to bleed in here
+dataset = 'train_nanogpt_shakespeare' ##tag #TODO370 Get rid of to avoid confusion later
 gradient_accumulation_steps = 1
 batch_size = 64
 
 
 
 # --------- #tag *Some of the model parameters (others are inferred)* ---------
-block_size = 100 # context of up to 256 previous tokens
-n_layer = 4
-n_head = 8 # doubled
+block_size = 50 # context of up to 256 previous tokens
+n_layer = 8
+n_head = 8
 n_embd = 384
-dropout = 0.15
+dropout = 0.0
 bias = False # do we use bias inside LayerNorm and Linear layers?
 
 # --------- #tag *Adam and opt. params* ---------
@@ -49,12 +49,12 @@ beta2 = 0.99 # make a bit bigger because number of tokens per iter is small
 # --------- #tag *LR decay* ---------
 decay_lr = True # whether to decay the learning rate
 lr_decay_iters = max_iters # make equal to max_iters usually
-min_lr = learning_rate / 10 # learning_rate / 10 usually
+min_lr = learning_rate / 100 # learning_rate / 10 usually
 
 # --------- #tag *Other that we probably want to set to not have effect* ---------
-weight_decay = 0.1
+weight_decay = 0.0
 grad_clip = 0.0 # clip gradients at this value, or disable if == 0.0
-warmup_iters = 200
+warmup_iters = 0
 
 # --------- #tag *Device* ---------
 

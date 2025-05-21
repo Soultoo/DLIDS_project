@@ -10,7 +10,7 @@ from our_GPT_model import GPTConfig, GPT
 
 # -----------------------------------------------------------------------------
 init_from = 'resume' # either 'resume' (from an out_dir) or a gpt2 variant (e.g. 'gpt2-xl')
-out_dir = 'out' # ignored if init_from is not 'resume'
+out_dir = 'out' # ignored if init_from is not 'resume' # This is the path to the folder with the ckeckpoint (the ONE checkpoint with name ckpt.pt)
 start = "\n" # or "<|endoftext|>" or etc. Can also specify a file, use as: "FILE:prompt.txt"
 num_samples = 10 # number of samples to draw
 max_new_tokens = 500 # number of tokens generated in each sample
@@ -34,7 +34,7 @@ ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=
 # model
 if init_from == 'resume':
     # init from a model saved in a specific directory
-    ckpt_path = os.path.join(out_dir, 'ckpt.pt')
+    ckpt_path = os.path.join(out_dir, 'ckpt_20.pt')
     checkpoint = torch.load(ckpt_path, map_location=device)
     gptconf = GPTConfig(**checkpoint['model_args'])
     model = GPT(gptconf)
@@ -63,7 +63,7 @@ if load_meta:
     with open(meta_path, 'rb') as f:
         meta = pickle.load(f)
     # TODO want to make this more general to arbitrary encoder/decoder schemes
-    stoi, itos = meta['stoi'], meta['itos']
+    stoi, itos = meta['stoi'], meta['itos'] # char to token and back?
     encode = lambda s: [stoi[c] for c in s]
     decode = lambda l: ''.join([itos[i] for i in l])
 else:

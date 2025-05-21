@@ -21,6 +21,7 @@ import sys
 import time
 import math
 import pickle
+import json
 from contextlib import nullcontext
 
 from torch.utils.tensorboard import SummaryWriter
@@ -40,6 +41,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from Utils.data_handling import create_DataLoader, Vocabulary
+from Utils.embeddings_Loader import load_glove_embeddings
 
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
@@ -89,7 +91,6 @@ stride = 1
 level = 'char'
 tokenization = 'nltk_shakespeare'
 traverse = 'once'
-embedding_dim = None  # Will be set based on vocabulary size
 train_file = ''
 val_file = ''
 emb_dim_is_token_dim = False
@@ -97,6 +98,9 @@ emb_dim_is_token_dim = False
 trial = None # Set this to an int in config file
 
 smooth_loss_factor = 0
+
+pretrained_wte = False
+finetune_wte = False
 # -----------------------------------------------------------------------------
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
 exec(open('configurator.py').read()) # overrides from command line or config file
@@ -106,23 +110,47 @@ config = {k: globals()[k] for k in config_keys} # will be useful for logging
 # More stuff to use our data loader ---------------
 # vocab = Vocabulary() ##tag #TODOe77 Why do they create a vocab before the dataloader??
 # Create data loaders
+
+epoch = 0
+
 print("Creating data loaders...")
 seq_length = block_size
 train_loader, _, vocab = create_DataLoader(train_file, batch_size, seq_length, shuffle=True, stride=stride,
                                         level=level, tokenization=tokenization, record_tokens=True,
                                         advanced_batching=True, traverse=traverse)
-val_loader, _, vocab = create_DataLoader(val_file, batch_size, seq_length, shuffle=False, stride=stride,
+val_loader, _, _ = create_DataLoader(val_file, batch_size, seq_length, shuffle=False, stride=stride,
                                         level=level, tokenization=tokenization, record_tokens=False,
                                         advanced_batching=True, traverse=traverse)
 print("Training data loader created.")
 print("Validation data loader created.")
 
+
 if (emb_dim_is_token_dim):
+    assert pretrained_wte is False
     n_embd = vocab.vocab_size
     print('')
     print('n_embd (Note: ):')
     print(n_embd)
+
+else:
+    print("Assuming we are aiming to use glove embeddings")
+    assert pretrained_wte is not False
+    assert level is not 'char'
+    root_path = '../..'
+    embedding_file = os.path.join(root_path, 'Data', 'Glove_vectors.txt')
+    n_embd, pretrained_wte_weights = load_glove_embeddings(embedding_file=embedding_file, vocab=vocab)
     
+    print('')
+    print('n_embd (Note: ):')
+    print(n_embd)
+
+    print('')
+    print('embedding (Note: ):')
+    print(pretrained_wte_weights)
+
+    print('')
+    print('embedding.size() (Note: ):')
+    print(pretrained_wte_weights.size())
 
 smooth_loss_train = 0
 smooth_loss_val = 0
@@ -133,14 +161,21 @@ train_iter = iter(train_loader) ##tag #TODO84b Debug that different examples act
 val_iter = iter(val_loader)
 
 def get_batch_our(split):
-    global train_iter, val_iter
+    global train_iter, val_iter, epoch
 
     loader = train_iter if split == 'train' else val_iter
 
     try:
         x, y = next(loader)
     except StopIteration:
+        
         if split == 'train':
+            epoch += 1 
+            print("Traversed one epoch:")
+            print("New epoch:")
+            print('')
+            print('epoch (Note: ):')
+            print(epoch)
             train_iter = iter(train_loader)
             x, y = next(train_iter)
         else:
@@ -267,7 +302,7 @@ print('vocab.vocab_size (Note: TRYING TO SET vocab_size TO THIS VALUE):')
 print(vocab.vocab_size)
 
 model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
-                  bias=bias, vocab_size=vocab.vocab_size, dropout=dropout) # start with model_args from command line # Trying to add vocab.vocab_size here
+                  bias=bias, vocab_size=vocab.vocab_size, dropout=dropout, pretrained_wte=pretrained_wte, finetune_wte=finetune_wte) # start with model_args from command line # Trying to add vocab.vocab_size here
 
 
 if init_from == 'scratch':
@@ -277,9 +312,13 @@ if init_from == 'scratch':
     if meta_vocab_size is None:
         print("defaulting to vocab_size of GPT-2 to 50304 (50257 rounded up for efficiency)")
     #model_args['vocab_size'] = meta_vocab_size if meta_vocab_size is not None else 50304
-    model_args['vocab_size'] = vocab.vocab_size if meta_vocab_size is not None else 50304 # Just wrote this over, not good but gotta go fast
+    model_args['vocab_size'] = vocab.vocab_size
     gptconf = GPTConfig(**model_args)
-    model = GPT(gptconf)
+    if not pretrained_wte:
+        model = GPT(gptconf)
+    else:
+        model = GPT(gptconf, pretrained_wte_weights)
+    
 elif init_from == 'resume':
     print(f"Resuming training from {out_dir}")
     # resume training from a checkpoint.
@@ -344,8 +383,14 @@ def estimate_loss():
     for split in ['train', 'val']:
         losses = torch.zeros(eval_iters)
         for k in range(eval_iters):
-            # X, Y = get_batch(split)
+            #X, Y = get_batch(split)
+            #print('')
+            #print('X.size (Have recieved this size FROM THE OLD BATCH GETTER):')
+            #print(X.size())
             X, Y = get_batch_our(split)
+            #print('')
+            #print('X.size (Have recieved this size):')
+            #print(X.size())
             #print("max token ID in batch:", X.max().item())
             #print("vocab size in model:", model_args['vocab_size'])
             with ctx:
@@ -430,10 +475,8 @@ while True:
             writer.add_scalar('SmoothLoss/train', smooth_loss_train, iter_num)
             writer.add_scalar('SmoothLoss/val', smooth_loss_val, iter_num)
         
-            
-            
-            #history['train_loss'].append((global_step, train_loss_avg))
-            #history['val_loss'].append((global_step, val_loss_avg))
+            history['train_loss'].append((iter_num, float(smooth_loss_train)))
+            history['val_loss'].append((iter_num, float(smooth_loss_val)))
 
             # Save print and log accuracy
             # writer.add_scalar('Accuracy/train', train_acc_avg, global_step)
@@ -464,6 +507,7 @@ while True:
             loss = loss / gradient_accumulation_steps # scale the loss to account for gradient accumulation
         # immediately async prefetch next batch while model is doing the forward pass on the GPU
         #X, Y = get_batch('train')
+        
         X, Y = get_batch_our('train')
         # backward pass, with gradient scaling if training in fp16
         scaler.scale(loss).backward()
@@ -499,6 +543,12 @@ while True:
         writer.add_scalar('Loss/train', losses['train'], iter_num + 0.01) # + 0.01 as to avoid double writing for the same update step between online and after epoch validation
         writer.add_scalar('Loss/val', losses['val'], iter_num + 0.01)
         writer.close()
+        history['train_loss'].append((iter_num, float(smooth_loss_train)))
+        history['val_loss'].append((iter_num, float(smooth_loss_val)))
+        with open(os.path.join(out_dir, 'history.pkl'), 'wb') as f:
+            pickle.dump(history, f)
+        with open(os.path.join(out_dir, 'history.json'), 'w') as f:
+            json.dump(history, f)
         break
 
 if ddp:

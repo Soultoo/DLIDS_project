@@ -11,13 +11,14 @@
 ##### Building GPT model
 #tag #TODO687 Are there differences in initialization?
 
-##### Arguments for GPT model and training gimmicks
-#tag #TODO195 Will have to adapt to our data loader (data = np.memmap(...))
-
 ##### Debugging GPT model
-#tag #TODOb28 Try a run
-#tag #TODOdb0 Enable our loaders
 #tag #TODO3c1 Try loading embeddings
+
+#tag #TODOe28 I have to know how many epochs ive traversed
+
+
+
+
 
 
 
@@ -96,6 +97,7 @@
 - #tag #GLOSSe87 *Warmup*
   - Linearly increases LR for set number of its before lowering it with lr decay schedule
     - We set it to zero - no warmup
+
 
 
 
