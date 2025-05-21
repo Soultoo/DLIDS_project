@@ -81,8 +81,8 @@ def generate_text(model, start_str, length, vocab: Vocabulary, device='cpu', tem
     #encode = lambda s: [stoi[c] for c in s]
     #decode = lambda l: ''.join([itos[i] for i in l])
     
-    start = "\n" # or "<|endoftext|>" or etc. Can also specify a file, use as: "FILE:prompt.txt"
-    #start = "a"
+    # start = "\n" # or "<|endoftext|>" or etc. Can also specify a file, use as: "FILE:prompt.txt"
+    start = "a"
     
     #start_ids = vocab.lookup_id(start)
     #x = (torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...])
